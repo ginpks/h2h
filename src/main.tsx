@@ -541,12 +541,12 @@ function App() {
   return (
     <main className="app-shell">
       <section className="toolbar" aria-label="Player comparison controls">
-        <div>
+        <div className="player-search-slot player-search-left">
+          <PlayerSearch label="Player one" value={playerAId} onSelect={(result) => selectPlayer(result, "a")} players={availablePlayers} blockedId={playerBId} />
+        </div>
+        <div className="title-lockup">
           <p className="eyebrow">Tennis analysis</p>
           <h1>Head-to-head dashboard</h1>
-        </div>
-        <div className="player-selectors">
-          <PlayerSearch label="Player one" value={playerAId} onSelect={(result) => selectPlayer(result, "a")} players={availablePlayers} blockedId={playerBId} />
           <button
             className="icon-button"
             type="button"
@@ -560,6 +560,8 @@ function App() {
           >
             <ArrowDownUp size={18} />
           </button>
+        </div>
+        <div className="player-search-slot player-search-right">
           <PlayerSearch label="Player two" value={playerBId} onSelect={(result) => selectPlayer(result, "b")} players={availablePlayers} blockedId={playerAId} />
         </div>
       </section>
