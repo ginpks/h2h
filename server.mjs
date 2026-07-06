@@ -212,18 +212,29 @@ async function fetchTennisAbstractPlayer(name, tour = "M") {
   const playerPath = tour === "W" ? "wplayer.cgi" : "player.cgi";
   const pageUrl = `https://www.tennisabstract.com/cgi-bin/${playerPath}?p=${slug}`;
   const fragmentUrl = `https://www.tennisabstract.com/jsfrags/${slug}.js`;
-  const [page, fragment] = await Promise.all([fetchTennisAbstractText(pageUrl), fetchTennisAbstractText(fragmentUrl)]);
+  const [pageResult, fragment] = await Promise.allSettled([fetchTennisAbstractText(pageUrl), fetchTennisAbstractText(fragmentUrl)]);
+
+  if (fragment.status === "rejected") {
+    throw fragment.reason;
+  }
+
+  const page = pageResult.status === "fulfilled" ? pageResult.value : "";
+  if (!page) {
+    console.warn(`Using fragment-only Tennis Abstract data for ${name}:`, pageResult.reason);
+  }
+
   const metadata = parsePlayerMetadata(page, name, slug, tour);
   const matches = parseRecentMatches(fragment, metadata);
   const season = parseSeasonStats(fragment, "2026") ?? deriveRecord(matches);
   const careerSurfaces = parseSurfaceRecords(fragment, matches);
+  const fallbackRank = parseLatestPlayerRank(fragment);
 
   return {
     id: `${tour.toLowerCase()}-${slug.toLowerCase()}`,
     name: metadata.fullname,
     country: metadata.country || "",
     age: metadata.age || 0,
-    ranking: metadata.ranking || 0,
+    ranking: metadata.ranking || fallbackRank,
     points: metadata.eloRating || 0,
     titles: parseCareerTitles(fragment),
     seasonRecord: { wins: season.wins, losses: season.losses },
@@ -333,6 +344,14 @@ function parseSeasonStats(fragment, year) {
     returnPointsWon: percentOrZero(cells[20]),
     tieBreakRecord: { wins: tbWins, losses: tbLosses },
   };
+}
+
+function parseLatestPlayerRank(fragment) {
+  const table = extractTable(fragment, "recent-results");
+  const rank = extractRows(table)
+    .map((row) => numberOrZero(cleanText(extractCells(row)[4] || "")))
+    .find((value) => value > 0);
+  return rank || 0;
 }
 
 function parseSurfaceRecords(fragment, matches) {
