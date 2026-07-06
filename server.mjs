@@ -212,13 +212,14 @@ async function fetchTennisAbstractPlayer(name, tour = "M") {
   const playerPath = tour === "W" ? "wplayer.cgi" : "player.cgi";
   const pageUrl = `https://www.tennisabstract.com/cgi-bin/${playerPath}?p=${slug}`;
   const fragmentUrl = `https://www.tennisabstract.com/jsfrags/${slug}.js`;
-  const [pageResult, fragment] = await Promise.allSettled([fetchTennisAbstractText(pageUrl), fetchTennisAbstractText(fragmentUrl)]);
+  const [pageResult, fragmentResult] = await Promise.allSettled([fetchTennisAbstractText(pageUrl), fetchTennisAbstractText(fragmentUrl)]);
 
-  if (fragment.status === "rejected") {
-    throw fragment.reason;
+  if (fragmentResult.status === "rejected") {
+    throw fragmentResult.reason;
   }
 
   const page = pageResult.status === "fulfilled" ? pageResult.value : "";
+  const fragment = fragmentResult.value;
   if (!page) {
     console.warn(`Using fragment-only Tennis Abstract data for ${name}:`, pageResult.reason);
   }
