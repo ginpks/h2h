@@ -71,7 +71,18 @@ createServer(async (request, response) => {
         response.end(JSON.stringify({ error: "Expected player name" }));
         return;
       }
-      writeJson(response, await fetchTennisAbstractPlayer(name, tour));
+      try {
+        writeJson(response, await fetchTennisAbstractPlayer(name, tour));
+      } catch (error) {
+        console.error("Tennis Abstract player fetch failed:", error);
+        response.writeHead(502, { "Content-Type": mimeTypes[".json"] });
+        response.end(
+          JSON.stringify({
+            error: "Could not fetch player from Tennis Abstract",
+            detail: error instanceof Error ? error.message : "Unknown upstream error",
+          }),
+        );
+      }
       return;
     }
 
@@ -182,12 +193,7 @@ async function getTennisAbstractPlayerList() {
     return tennisAbstract.playerList;
   }
 
-  const response = await fetch("https://www.tennisabstract.com/mwplayerlist.js");
-  if (!response.ok) {
-    throw new Error("Could not fetch Tennis Abstract player list");
-  }
-
-  const text = await response.text();
+  const text = await fetchTennisAbstractText("https://www.tennisabstract.com/mwplayerlist.js");
   const json = text.replace(/^var playerlist=/, "").replace(/;\s*$/, "");
   tennisAbstract.playerList = JSON.parse(json).map((entry) => {
     const tour = entry.slice(1, 2);
@@ -206,14 +212,7 @@ async function fetchTennisAbstractPlayer(name, tour = "M") {
   const playerPath = tour === "W" ? "wplayer.cgi" : "player.cgi";
   const pageUrl = `https://www.tennisabstract.com/cgi-bin/${playerPath}?p=${slug}`;
   const fragmentUrl = `https://www.tennisabstract.com/jsfrags/${slug}.js`;
-  const [pageResponse, fragmentResponse] = await Promise.all([fetch(pageUrl), fetch(fragmentUrl)]);
-
-  if (!pageResponse.ok || !fragmentResponse.ok) {
-    throw new Error(`Could not fetch ${name} from Tennis Abstract`);
-  }
-
-  const page = await pageResponse.text();
-  const fragment = await fragmentResponse.text();
+  const [page, fragment] = await Promise.all([fetchTennisAbstractText(pageUrl), fetchTennisAbstractText(fragmentUrl)]);
   const metadata = parsePlayerMetadata(page, name, slug, tour);
   const matches = parseRecentMatches(fragment, metadata);
   const season = parseSeasonStats(fragment, "2026") ?? deriveRecord(matches);
@@ -236,6 +235,23 @@ async function fetchTennisAbstractPlayer(name, tour = "M") {
       fetchedAt: new Date().toISOString(),
     },
   };
+}
+
+async function fetchTennisAbstractText(url) {
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,text/javascript,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Tennis Abstract returned ${response.status} for ${url}`);
+  }
+
+  return response.text();
 }
 
 function parsePlayerMetadata(page, fallbackName, slug, tour) {
