@@ -518,6 +518,30 @@ h3 {
   background: var(--left);
 }
 
+.upcoming-match {
+  display: grid;
+  gap: 3px;
+  padding: 12px;
+  border: 1px solid rgba(215, 194, 123, 0.24);
+  border-radius: 8px;
+  background: rgba(215, 194, 123, 0.1);
+}
+
+.upcoming-match span {
+  color: var(--gold);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.upcoming-match strong {
+  color: var(--text);
+}
+
+.upcoming-match small {
+  color: var(--muted);
+}
+
 .meeting-list {
   display: grid;
   gap: 8px;

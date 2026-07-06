@@ -226,6 +226,7 @@ async function fetchTennisAbstractPlayer(name, tour = "M") {
 
   const metadata = parsePlayerMetadata(page, name, slug, tour);
   const matches = parseRecentMatches(fragment, metadata);
+  const upcomingMatches = parseUpcomingMatches(fragment, metadata);
   const season = parseSeasonStats(fragment, "2026") ?? deriveRecord(matches);
   const careerSurfaces = parseSurfaceRecords(fragment, matches);
   const fallbackRank = parseLatestPlayerRank(fragment);
@@ -241,6 +242,7 @@ async function fetchTennisAbstractPlayer(name, tour = "M") {
     seasonRecord: { wins: season.wins, losses: season.losses },
     careerSurfaces,
     matches,
+    upcomingMatches,
     source: {
       name: "Tennis Abstract",
       url: pageUrl,
@@ -296,6 +298,31 @@ function parseRecentMatches(fragment, metadata) {
     .map((row) => parseRecentMatch(row, metadata))
     .filter(Boolean)
     .slice(0, 10);
+}
+
+function parseUpcomingMatches(fragment, metadata) {
+  const table = extractTable(fragment, "recent-results");
+  return extractRows(table)
+    .map((row) => parseUpcomingMatch(row, metadata))
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+function parseUpcomingMatch(row, metadata) {
+  const cells = extractCells(row);
+  if (cells.length < 8) return null;
+  const descriptionHtml = cells[6];
+  const description = cleanText(descriptionHtml);
+  const score = cleanText(cells[7]);
+  if (!description.includes(" vs ") || score) return null;
+
+  return {
+    date: parseTennisAbstractDate(cleanText(cells[0])),
+    tournament: cleanText(cells[1]),
+    surface: normalizeSurface(cleanText(cells[2])),
+    round: cleanText(cells[3]),
+    opponent: extractOpponentName(descriptionHtml, metadata.fullname, metadata.lastname),
+  };
 }
 
 function parseRecentMatch(row, metadata) {

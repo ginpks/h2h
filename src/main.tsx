@@ -39,6 +39,14 @@ type Match = {
   score: string;
 };
 
+type UpcomingMatch = {
+  date: string;
+  tournament: string;
+  round: string;
+  surface: Surface;
+  opponent: string;
+};
+
 type Player = {
   id: string;
   name: string;
@@ -50,6 +58,7 @@ type Player = {
   seasonRecord: { wins: number; losses: number };
   careerSurfaces: SurfaceRecord[];
   matches: Match[];
+  upcomingMatches?: UpcomingMatch[];
 };
 
 type HeadToHead = {
@@ -321,6 +330,7 @@ const tennisApi = {
       first,
       second,
       headToHead: findHeadToHead(playerAId, playerBId) ?? deriveHeadToHead(first, second),
+      upcomingMatch: findUpcomingMatch(first, second),
     };
   },
   async analyze(first: Player, second: Player, headToHead: HeadToHead | null) {
@@ -385,6 +395,25 @@ function deriveHeadToHead(first: Player, second: Player): HeadToHead | null {
     winsB: meetings.length - winsA,
     meetings,
   };
+}
+
+function findUpcomingMatch(first: Player, second: Player): UpcomingMatch | null {
+  const secondName = normalizePlayerName(second.name);
+  const firstName = normalizePlayerName(first.name);
+  const fromFirst = first.upcomingMatches?.find((match) => normalizePlayerName(match.opponent) === secondName);
+  if (fromFirst) return fromFirst;
+
+  const fromSecond = second.upcomingMatches?.find((match) => normalizePlayerName(match.opponent) === firstName);
+  if (!fromSecond) return null;
+
+  return {
+    ...fromSecond,
+    opponent: first.name,
+  };
+}
+
+function normalizePlayerName(value: string) {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 function winRate(wins: number, losses: number) {
@@ -478,6 +507,7 @@ function App() {
     first: Player;
     second: Player;
     headToHead: HeadToHead | null;
+    upcomingMatch: UpcomingMatch | null;
   } | null>(null);
   const [analysis, setAnalysis] = React.useState<Analysis | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -573,7 +603,7 @@ function App() {
         <div className={isLoading ? "dashboard is-loading" : "dashboard"}>
           <section className="overview-grid" aria-label="Player overview">
             <PlayerSummary player={comparison.first} />
-            <HeadToHeadCard first={comparison.first} second={comparison.second} record={comparison.headToHead} />
+            <HeadToHeadCard first={comparison.first} second={comparison.second} record={comparison.headToHead} upcomingMatch={comparison.upcomingMatch} />
             <PlayerSummary player={comparison.second} align="right" />
           </section>
 
@@ -825,7 +855,17 @@ function Metric({ icon, label, value, detail }: { icon: React.ReactNode; label: 
   );
 }
 
-function HeadToHeadCard({ first, second, record }: { first: Player; second: Player; record: HeadToHead | null }) {
+function HeadToHeadCard({
+  first,
+  second,
+  record,
+  upcomingMatch,
+}: {
+  first: Player;
+  second: Player;
+  record: HeadToHead | null;
+  upcomingMatch: UpcomingMatch | null;
+}) {
   const firstWins = record?.winsA ?? 0;
   const secondWins = record?.winsB ?? 0;
   const total = firstWins + secondWins;
@@ -851,6 +891,17 @@ function HeadToHeadCard({ first, second, record }: { first: Player; second: Play
       <div className="split-bar" aria-label={`${first.name} ${firstWins} wins, ${second.name} ${secondWins} wins`}>
         <span style={{ width: `${firstShare}%` }} />
       </div>
+      {upcomingMatch && (
+        <div className="upcoming-match">
+          <span>Upcoming matchup</span>
+          <strong>
+            {first.name} vs {second.name}
+          </strong>
+          <small>
+            {upcomingMatch.tournament} - {formatDate(upcomingMatch.date)} - {upcomingMatch.round} - {upcomingMatch.surface}
+          </small>
+        </div>
+      )}
       {record ? (
         <div className="meeting-list">
           {record.meetings.slice(0, 3).map((meeting) => (
