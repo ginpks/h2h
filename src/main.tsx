@@ -207,6 +207,12 @@ const players: Player[] = [
   },
 ];
 
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "";
+
+function apiPath(path: string) {
+  return `${apiBaseUrl}${path}`;
+}
+
 const headToHeads: HeadToHead[] = [
   {
     playerAId: "sinner",
@@ -262,7 +268,7 @@ const dataSources: DataSource[] = [
 const tennisApi = {
   async getStatus() {
     try {
-      const response = await fetch("/api/status");
+      const response = await fetch(apiPath("/api/status"));
       if (response.ok) {
         return (await response.json()) as AppStatus;
       }
@@ -288,7 +294,7 @@ const tennisApi = {
   async searchPlayers(query: string) {
     if (query.trim().length < 2) return [];
     try {
-      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+      const response = await fetch(apiPath(`/api/search?q=${encodeURIComponent(query)}`));
       if (response.ok) {
         return (await response.json()) as PlayerSearchResult[];
       }
@@ -298,7 +304,7 @@ const tennisApi = {
     return [];
   },
   async getPlayer(result: PlayerSearchResult) {
-    const response = await fetch(`/api/player?name=${encodeURIComponent(result.name)}&tour=${encodeURIComponent(result.tour || "M")}`);
+    const response = await fetch(apiPath(`/api/player?name=${encodeURIComponent(result.name)}&tour=${encodeURIComponent(result.tour || "M")}`));
     if (!response.ok) {
       throw new Error("Could not fetch player");
     }
@@ -319,7 +325,7 @@ const tennisApi = {
   },
   async analyze(first: Player, second: Player, headToHead: HeadToHead | null) {
     try {
-      const response = await fetch("/api/analyze", {
+      const response = await fetch(apiPath("/api/analyze"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ first, second, headToHead }),

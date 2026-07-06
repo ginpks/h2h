@@ -26,6 +26,20 @@ GitHub Pages is static hosting only. The hosted Pages version can render the das
 
 After pushing to GitHub, enable Pages in the repo settings with source set to **GitHub Actions**.
 
+To connect a hosted backend to the Pages frontend:
+
+1. Deploy this repo's `server.mjs` on a Node host.
+2. Set backend environment variables:
+   - `HOST=0.0.0.0`
+   - `PORT` to the value provided by the host
+   - `ALLOWED_ORIGIN=https://ginpks.github.io`
+   - optional `OPENAI_API_KEY`
+3. In GitHub repo settings, add an Actions variable:
+   - `VITE_API_BASE_URL=https://YOUR_BACKEND_HOST`
+4. Re-run the Pages workflow.
+
+Without `VITE_API_BASE_URL`, the Pages site falls back to bundled sample players and local analysis.
+
 ## OpenAI Analysis
 
 The app works without an API key by using deterministic local analysis. To enable model-generated analysis from the server:

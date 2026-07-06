@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL(".", import.meta.url));
 const dist = join(root, "dist");
 const port = Number(process.env.PORT || 4173);
+const host = process.env.HOST || "127.0.0.1";
+const allowedOrigin = process.env.ALLOWED_ORIGIN || "*";
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -20,6 +22,13 @@ const mimeTypes = {
 
 createServer(async (request, response) => {
   try {
+    setCorsHeaders(response);
+    if (request.method === "OPTIONS") {
+      response.writeHead(204);
+      response.end();
+      return;
+    }
+
     const url = new URL(request.url || "/", `http://${request.headers.host}`);
 
     if (request.method === "GET" && url.pathname === "/api/status") {
@@ -99,9 +108,15 @@ createServer(async (request, response) => {
     response.writeHead(500, { "Content-Type": mimeTypes[".json"] });
     response.end(JSON.stringify({ error: "Server error" }));
   }
-}).listen(port, "127.0.0.1", () => {
-  console.log(`Tennis dashboard running at http://127.0.0.1:${port}/`);
+}).listen(port, host, () => {
+  console.log(`Tennis dashboard running at http://${host}:${port}/`);
 });
+
+function setCorsHeaders(response) {
+  response.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+  response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  response.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+}
 
 function safeAssetPath(pathname) {
   const requested = pathname === "/" ? "/index.html" : pathname;
