@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL(".", import.meta.url));
 const dist = join(root, "dist");
 const port = Number(process.env.PORT || 4173);
-const host = process.env.HOST || "127.0.0.1";
+const host = process.env.HOST || (process.env.RENDER ? "0.0.0.0" : "127.0.0.1");
 const allowedOrigin = process.env.ALLOWED_ORIGIN || "*";
 const rapidTennisHost = process.env.RAPID_TENNIS_HOST || "tennis-api-atp-wta-itf.p.rapidapi.com";
 const rapidTennisBaseUrl = process.env.RAPID_TENNIS_BASE_URL || `https://${rapidTennisHost}`;
