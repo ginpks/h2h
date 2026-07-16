@@ -250,13 +250,14 @@ const players: Player[] = [
 ];
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "";
+const apiAvailable = Boolean(apiBaseUrl) || import.meta.env.PROD;
 
 function apiPath(path: string) {
   return `${apiBaseUrl}${path}`;
 }
 
 function hasBackend() {
-  return Boolean(apiBaseUrl);
+  return apiAvailable;
 }
 
 const headToHeads: HeadToHead[] = [
@@ -293,7 +294,7 @@ const tennisApi = {
         dataUpdatedAt: "2026-07-05T00:00:00.000Z",
         providers: [
           { name: "Demo dataset", status: "ready", detail: "Bundled sample players and matches" },
-          { name: "Rapid Tennis API", status: "offline", detail: "Set VITE_API_BASE_URL in GitHub Actions to connect the hosted backend" },
+          { name: "Rapid Tennis API", status: "offline", detail: "Run the Node server or set VITE_API_BASE_URL to connect live tennis data" },
           { name: "OpenAI", status: "offline", detail: "Requires the hosted backend" },
         ],
       } satisfies AppStatus;
@@ -1335,7 +1336,7 @@ function PlayerSearch({
             ) : (
               <div className="search-empty">
                 <strong>{isSearching ? (hasBackend() ? "Searching tennis sources" : "Checking sample roster") : "No player found"}</strong>
-                <small>{hasBackend() ? "Try the full player name." : "GitHub Pages is in sample mode. Connect the hosted backend to search live tennis sources."}</small>
+                <small>{hasBackend() ? "Try the full player name." : "Local dev is in sample mode. Run the Node server or set VITE_API_BASE_URL to search live tennis sources."}</small>
               </div>
             )}
           </div>
