@@ -447,7 +447,7 @@ button {
 
 .surface-scoreboard {
   display: grid;
-  gap: 10px;
+  gap: 6px;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.015);
@@ -455,25 +455,26 @@ button {
 
 .surface-score {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(110px, 150px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(92px, 120px) minmax(0, 1fr);
   align-items: center;
-  gap: clamp(10px, 3vw, 36px);
+  gap: clamp(8px, 2.2vw, 26px);
+  min-height: 38px;
   text-align: center;
 }
 
 .surface-score > strong {
   color: var(--number);
-  font-size: clamp(1.42rem, 3.5vw, 2.35rem);
+  font-size: clamp(1.05rem, 2.5vw, 1.55rem);
   font-weight: 760;
   font-variant-numeric: tabular-nums;
 }
 
 .surface-score > span {
-  padding: 7px 16px;
+  padding: 5px 12px;
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   color: var(--soft);
-  font-size: clamp(1.1rem, 2.8vw, 1.72rem);
+  font-size: clamp(0.9rem, 2vw, 1.18rem);
   line-height: 1;
   font-weight: 700;
 }
@@ -646,7 +647,7 @@ button {
 .chat-log {
   display: grid;
   gap: 8px;
-  max-height: 300px;
+  max-height: 430px;
   overflow: auto;
   padding: 8px 2px 12px 0;
   scrollbar-color: rgba(229, 233, 238, 0.18) transparent;
