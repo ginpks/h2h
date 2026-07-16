@@ -255,6 +255,10 @@ function apiPath(path: string) {
   return `${apiBaseUrl}${path}`;
 }
 
+function hasBackend() {
+  return Boolean(apiBaseUrl);
+}
+
 const headToHeads: HeadToHead[] = [
   {
     playerAId: "sinner",
@@ -282,6 +286,19 @@ const headToHeads: HeadToHead[] = [
 
 const tennisApi = {
   async getStatus() {
+    if (!hasBackend()) {
+      return {
+        dataMode: "sample",
+        analysisMode: "local",
+        dataUpdatedAt: "2026-07-05T00:00:00.000Z",
+        providers: [
+          { name: "Demo dataset", status: "ready", detail: "Bundled sample players and matches" },
+          { name: "Rapid Tennis API", status: "offline", detail: "Set VITE_API_BASE_URL in GitHub Actions to connect the hosted backend" },
+          { name: "OpenAI", status: "offline", detail: "Requires the hosted backend" },
+        ],
+      } satisfies AppStatus;
+    }
+
     try {
       const response = await fetch(apiPath("/api/status"));
       if (response.ok) {
@@ -292,13 +309,13 @@ const tennisApi = {
     }
 
     return {
-      dataMode: "hybrid",
+      dataMode: "sample",
       analysisMode: "local",
       dataUpdatedAt: "2026-07-05T00:00:00.000Z",
       providers: [
         { name: "Demo dataset", status: "ready", detail: "Bundled sample players and matches" },
-        { name: "OpenAI", status: "planned", detail: "Set OPENAI_API_KEY and run npm run serve" },
-        { name: "Rapid Tennis API", status: "planned", detail: "Set RAPID_TENNIS_API_KEY and run npm run serve" },
+        { name: "Rapid Tennis API", status: "offline", detail: "Hosted backend is unavailable" },
+        { name: "OpenAI", status: "offline", detail: "Hosted backend is unavailable" },
       ],
     } satisfies AppStatus;
   },
@@ -308,6 +325,7 @@ const tennisApi = {
   },
   async searchPlayers(query: string) {
     if (query.trim().length < 2) return [];
+    if (!hasBackend()) return [];
     try {
       const response = await fetch(apiPath(`/api/search?q=${encodeURIComponent(query)}`));
       if (response.ok) {
@@ -1316,8 +1334,8 @@ function PlayerSearch({
               ))
             ) : (
               <div className="search-empty">
-                <strong>{isSearching ? "Searching Rapid Tennis API" : "No player found"}</strong>
-                <small>Try a full name like Novak Djokovic, Coco Gauff, Rafael Nadal, or Serena Williams.</small>
+                <strong>{isSearching ? (hasBackend() ? "Searching Rapid Tennis API" : "Checking sample roster") : "No player found"}</strong>
+                <small>{hasBackend() ? "Try the full player name." : "GitHub Pages is in sample mode. Connect the hosted backend to search Rapid Tennis API players."}</small>
               </div>
             )}
           </div>
