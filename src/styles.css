@@ -14,9 +14,10 @@
   --soft: #b7c0c7;
   --muted: #757f88;
   --accent: #a9b4bf;
-  --win: #cdd5dc;
-  --loss: #8a929a;
-  --red: #d2655d;
+  --win: #6fd18a;
+  --loss: #e06b63;
+  --number: #ffffff;
+  --red: #e06b63;
   --blue: #6c83b8;
   --clay: #a57961;
   --hard: #6e8798;
@@ -274,12 +275,14 @@ button {
 }
 
 .form-dot.win {
-  border-color: rgba(205, 213, 220, 0.5);
+  border-color: rgba(111, 209, 138, 0.56);
+  background: rgba(111, 209, 138, 0.07);
   color: var(--win);
 }
 
 .form-dot.loss {
-  border-color: rgba(138, 146, 154, 0.42);
+  border-color: rgba(224, 107, 99, 0.54);
+  background: rgba(224, 107, 99, 0.07);
   color: var(--loss);
 }
 
@@ -312,29 +315,32 @@ button {
 .versus-tile {
   display: grid;
   place-items: center;
-  min-height: 108px;
-  padding: 13px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.03);
+  align-content: center;
+  min-height: 84px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.018);
   color: var(--text);
   text-align: center;
 }
 
 .versus-tile span {
-  font-size: clamp(1.8rem, 3.4vw, 2.55rem);
-  font-weight: 900;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 860;
+  letter-spacing: 0.08em;
 }
 
 .versus-tile strong {
-  color: var(--muted);
-  font-size: 1.1rem;
-  text-transform: uppercase;
+  color: var(--number);
+  font-size: clamp(1.25rem, 2.8vw, 1.72rem);
+  line-height: 1.08;
 }
 
 .versus-tile small {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.68rem;
   font-weight: 760;
 }
 
@@ -353,10 +359,11 @@ button {
 }
 
 .year-record > strong {
-  color: var(--text);
+  color: var(--number);
   font-size: clamp(1.9rem, 4vw, 3rem);
-  font-weight: 640;
+  font-weight: 760;
   line-height: 1;
+  text-shadow: 0 0 24px rgba(255, 255, 255, 0.08);
 }
 
 .pie {
@@ -412,7 +419,7 @@ button {
 
 .year-stack strong,
 .year-stack span {
-  color: var(--text);
+  color: var(--number);
   font-size: clamp(1.22rem, 2.8vw, 1.86rem);
   line-height: 1;
 }
@@ -444,8 +451,9 @@ button {
 }
 
 .surface-score > strong {
+  color: var(--number);
   font-size: clamp(1.42rem, 3.5vw, 2.35rem);
-  font-weight: 620;
+  font-weight: 760;
 }
 
 .surface-score > span {
@@ -479,7 +487,7 @@ button {
 }
 
 .neutral {
-  color: #879189;
+  color: #b6c0c8;
 }
 
 .info-row {

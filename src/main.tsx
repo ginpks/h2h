@@ -1178,9 +1178,9 @@ function App() {
           <section className="player-lanes" aria-label="Recent form">
             <PlayerLane player={comparison.first} side="left" />
             <div className="versus-tile">
-              <span>{new Date().getFullYear()}</span>
-              <strong>vs</strong>
-              <small>{comparison.headToHead ? `${comparison.headToHead.winsA}-${comparison.headToHead.winsB} H2H` : "No H2H"}</small>
+              <span>H2H</span>
+              <strong>{comparison.headToHead ? `${comparison.headToHead.winsA}-${comparison.headToHead.winsB}` : "0-0"}</strong>
+              <small>{new Date().getFullYear()} matchup</small>
             </div>
             <PlayerLane player={comparison.second} side="right" />
           </section>
