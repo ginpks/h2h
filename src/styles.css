@@ -5,21 +5,22 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --bg: #080b0a;
-  --panel: #111613;
-  --panel-soft: #171e1a;
-  --panel-strong: #1d261f;
-  --line: rgba(226, 235, 218, 0.12);
-  --line-strong: rgba(226, 235, 218, 0.22);
-  --text: #f4f7f2;
-  --soft: #b9c5b4;
-  --muted: #778372;
-  --green: #74c96f;
-  --green-deep: #32833b;
-  --red: #e45a4f;
-  --blue: #638bf0;
-  --clay: #d98558;
-  --hard: #5d96b5;
-  --grass: #6fb35c;
+  --panel: #101214;
+  --panel-soft: #15181b;
+  --panel-strong: #1b1f23;
+  --line: rgba(229, 233, 238, 0.11);
+  --line-strong: rgba(229, 233, 238, 0.2);
+  --text: #f1f4f6;
+  --soft: #b7c0c7;
+  --muted: #757f88;
+  --accent: #a9b4bf;
+  --win: #cdd5dc;
+  --loss: #8a929a;
+  --red: #d2655d;
+  --blue: #6c83b8;
+  --clay: #a57961;
+  --hard: #6e8798;
+  --grass: #7f9575;
   --shadow: 0 24px 70px rgba(0, 0, 0, 0.48);
   --radius: 8px;
 }
@@ -33,8 +34,8 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background:
-    radial-gradient(circle at top left, rgba(116, 201, 111, 0.12), transparent 340px),
-    radial-gradient(circle at bottom right, rgba(99, 139, 240, 0.09), transparent 360px),
+    radial-gradient(circle at top left, rgba(170, 184, 196, 0.08), transparent 340px),
+    radial-gradient(circle at bottom right, rgba(96, 110, 124, 0.08), transparent 360px),
     var(--bg);
 }
 
@@ -91,11 +92,11 @@ button {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: rgba(17, 22, 19, 0.86);
-  color: var(--green);
+  color: var(--accent);
 }
 
 .search-wrap:focus-within {
-  border-color: rgba(116, 201, 111, 0.48);
+  border-color: rgba(190, 200, 210, 0.42);
 }
 
 .search-wrap input {
@@ -187,7 +188,7 @@ button {
 .refresh-button:hover,
 .chat-form button:hover,
 .error-banner button:hover {
-  border-color: rgba(116, 201, 111, 0.5);
+  border-color: rgba(190, 200, 210, 0.38);
   background: var(--panel-strong);
 }
 
@@ -232,15 +233,15 @@ button {
   min-height: 58px;
   place-items: center;
   padding: 9px 16px;
-  border: 1px solid rgba(116, 201, 111, 0.26);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  background: linear-gradient(180deg, rgba(38, 70, 42, 0.9), rgba(29, 48, 32, 0.9));
+  background: rgba(255, 255, 255, 0.025);
   color: var(--text);
   text-align: center;
 }
 
 .name-plate span {
-  color: #a6d3a3;
+  color: var(--muted);
   font-size: 0.64rem;
   font-weight: 820;
 }
@@ -262,20 +263,24 @@ button {
 .form-dot {
   display: grid;
   place-items: center;
-  width: clamp(27px, 3.4vw, 36px);
+  width: clamp(24px, 3vw, 31px);
   aspect-ratio: 1;
   border-radius: 50%;
-  color: white;
-  font-size: clamp(0.82rem, 1.7vw, 1rem);
-  font-weight: 900;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+  font-size: clamp(0.68rem, 1.35vw, 0.82rem);
+  font-weight: 780;
 }
 
 .form-dot.win {
-  background: linear-gradient(180deg, #54b85a, #277b32);
+  border-color: rgba(205, 213, 220, 0.5);
+  color: var(--win);
 }
 
 .form-dot.loss {
-  background: linear-gradient(180deg, #f06d63, #bc342c);
+  border-color: rgba(138, 146, 154, 0.42);
+  color: var(--loss);
 }
 
 .form-dots b {
@@ -311,10 +316,9 @@ button {
   padding: 13px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: linear-gradient(180deg, #f5f7ef, #dce5d1);
-  color: #111711;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
   text-align: center;
-  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.28);
 }
 
 .versus-tile span {
@@ -323,13 +327,13 @@ button {
 }
 
 .versus-tile strong {
-  color: #3b7138;
+  color: var(--muted);
   font-size: 1.1rem;
   text-transform: uppercase;
 }
 
 .versus-tile small {
-  color: #5c6857;
+  color: var(--muted);
   font-size: 0.78rem;
   font-weight: 760;
 }
@@ -414,7 +418,7 @@ button {
 }
 
 .year-stack strong {
-  color: var(--green);
+  color: var(--text);
   font-weight: 860;
 }
 
@@ -446,31 +450,32 @@ button {
 
 .surface-score > span {
   padding: 7px 16px;
+  border: 1px solid var(--line-strong);
   border-radius: 6px;
-  color: white;
+  color: var(--soft);
   font-size: clamp(1.1rem, 2.8vw, 1.72rem);
   line-height: 1;
   font-weight: 700;
 }
 
 .surface-score.hard > span {
-  background: linear-gradient(180deg, rgba(93, 150, 181, 0.95), rgba(53, 99, 128, 0.95));
+  background: transparent;
 }
 
 .surface-score.clay > span {
-  background: linear-gradient(180deg, rgba(217, 133, 88, 0.96), rgba(164, 83, 51, 0.96));
+  background: transparent;
 }
 
 .surface-score.grass > span {
-  background: linear-gradient(180deg, rgba(111, 179, 92, 0.96), rgba(63, 125, 52, 0.96));
+  background: transparent;
 }
 
 .positive {
-  color: var(--green);
+  color: var(--win);
 }
 
 .negative {
-  color: var(--red);
+  color: var(--loss);
 }
 
 .neutral {
@@ -548,7 +553,7 @@ button {
 }
 
 .provider-badge .ready {
-  color: var(--green);
+  color: var(--soft);
 }
 
 .provider-badge .muted {
@@ -585,7 +590,7 @@ button {
 
 .chat-heading span {
   display: block;
-  color: var(--green);
+  color: var(--muted);
   font-size: 0.7rem;
   font-weight: 860;
   text-transform: uppercase;
@@ -623,8 +628,8 @@ button {
 
 .chat-message.user {
   justify-self: end;
-  border-color: rgba(116, 201, 111, 0.35);
-  background: rgba(48, 99, 53, 0.5);
+  border-color: rgba(190, 200, 210, 0.28);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text);
 }
 
@@ -647,7 +652,7 @@ button {
 }
 
 .chat-form input:focus {
-  border-color: rgba(116, 201, 111, 0.48);
+  border-color: rgba(190, 200, 210, 0.42);
 }
 
 .chat-form button {
