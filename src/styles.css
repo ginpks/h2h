@@ -492,45 +492,52 @@ button {
 
 .info-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 170px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 132px minmax(0, 1fr);
+  gap: 10px;
   align-items: stretch;
+  border-top: 1px solid var(--line);
+  padding-top: clamp(10px, 1.7vw, 16px);
+  padding-bottom: clamp(10px, 1.7vw, 16px);
 }
 
 .detail-card,
 .provider-badge,
 .ai-chat {
-  background: rgba(255, 255, 255, 0.035);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .detail-card {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  padding: 12px;
+  grid-template-columns: minmax(90px, 1.15fr) repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  min-height: 62px;
+  padding: 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  align-items: stretch;
 }
 
 .detail-card h2 {
-  grid-column: 1 / -1;
   margin: 0;
+  align-self: center;
   color: var(--text);
-  font-size: clamp(1.05rem, 2vw, 1.35rem);
+  font-size: clamp(0.92rem, 1.7vw, 1.12rem);
+  line-height: 1.08;
 }
 
 .detail-card div {
   display: grid;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
-  padding: 8px;
+  padding: 6px 7px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.035);
+  background: transparent;
+  border-left: 1px solid var(--line);
 }
 
 .detail-card span {
   color: var(--muted);
-  font-size: 0.66rem;
+  font-size: 0.58rem;
   font-weight: 820;
   text-transform: uppercase;
 }
@@ -538,7 +545,7 @@ button {
 .detail-card strong {
   min-width: 0;
   color: var(--soft);
-  font-size: 0.88rem;
+  font-size: 0.78rem;
 }
 
 .align-right {
@@ -548,15 +555,15 @@ button {
 .provider-badge {
   display: grid;
   align-content: center;
-  gap: 8px;
-  padding: 12px;
+  gap: 5px;
+  padding: 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   text-align: center;
 }
 
 .provider-badge span {
-  font-size: 0.76rem;
+  font-size: 0.66rem;
   font-weight: 780;
 }
 
@@ -570,9 +577,9 @@ button {
 
 .refresh-button {
   gap: 7px;
-  min-height: 34px;
-  padding: 0 10px;
-  font-size: 0.78rem;
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 0.72rem;
   font-weight: 780;
 }
 
@@ -585,8 +592,9 @@ button {
 
 .ai-chat {
   display: grid;
-  gap: 10px;
+  gap: 0;
   border-top: 1px solid var(--line);
+  background: rgba(7, 9, 11, 0.52);
 }
 
 .chat-heading {
@@ -594,6 +602,8 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
 }
 
 .chat-heading span {
@@ -607,52 +617,59 @@ button {
 .chat-heading strong {
   display: block;
   color: var(--text);
-  font-size: clamp(1.05rem, 2.3vw, 1.48rem);
+  font-size: clamp(0.98rem, 2vw, 1.24rem);
 }
 
 .chat-log {
   display: grid;
-  gap: 8px;
-  max-height: 270px;
+  gap: 10px;
+  max-height: 320px;
   overflow: auto;
+  padding: 14px 0;
 }
 
 .chat-message {
-  width: min(760px, 100%);
-  padding: 10px 12px;
+  width: fit-content;
+  max-width: min(760px, 86%);
+  padding: 10px 13px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 14px;
   white-space: pre-line;
   line-height: 1.42;
   font-size: 0.9rem;
-  font-weight: 560;
+  font-weight: 520;
 }
 
 .chat-message.assistant {
   justify-self: start;
-  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(229, 233, 238, 0.13);
+  background: rgba(255, 255, 255, 0.055);
   color: var(--soft);
+  border-bottom-left-radius: 5px;
 }
 
 .chat-message.user {
   justify-self: end;
   border-color: rgba(190, 200, 210, 0.28);
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(120, 132, 145, 0.18);
   color: var(--text);
+  border-bottom-right-radius: 5px;
 }
 
 .chat-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 44px;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  gap: 7px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
 }
 
 .chat-form input {
   min-width: 0;
-  height: 44px;
+  height: 42px;
   padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 999px;
   outline: 0;
   background: rgba(7, 10, 8, 0.52);
   color: var(--text);
@@ -664,7 +681,8 @@ button {
 }
 
 .chat-form button {
-  height: 44px;
+  height: 42px;
+  border-radius: 50%;
 }
 
 .error-banner {

@@ -1185,6 +1185,12 @@ function App() {
             <PlayerLane player={comparison.second} side="right" />
           </section>
 
+          <section className="info-row" aria-label="Player details">
+            <PlayerDetails player={comparison.first} />
+            <ProviderBadge status={status} isBusy={isFetchingPlayer || isAnalyzing} onRefresh={loadComparison} />
+            <PlayerDetails player={comparison.second} align="right" />
+          </section>
+
           <section className="record-row" aria-label="Season records">
             <YearRecord player={comparison.first} />
             <YearSelector />
@@ -1195,12 +1201,6 @@ function App() {
             {(["Hard", "Clay", "Grass"] as Surface[]).map((surface) => (
               <SurfaceScoreRow key={surface} first={comparison.first} second={comparison.second} surface={surface} />
             ))}
-          </section>
-
-          <section className="info-row" aria-label="Player details">
-            <PlayerDetails player={comparison.first} />
-            <ProviderBadge status={status} isBusy={isFetchingPlayer || isAnalyzing} onRefresh={loadComparison} />
-            <PlayerDetails player={comparison.second} align="right" />
           </section>
 
           <AiChatPanel
