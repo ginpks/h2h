@@ -11,6 +11,7 @@ import {
   Gauge,
   LoaderCircle,
   Medal,
+  Send,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -116,6 +117,11 @@ type Analysis = {
   redFlags: string[];
   risks: string[];
   focus: string[];
+};
+
+type ChatMessage = {
+  role: "assistant" | "user";
+  content: string;
 };
 
 type AppStatus = {
@@ -374,6 +380,26 @@ const tennisApi = {
 
     await new Promise((resolve) => window.setTimeout(resolve, 380));
     return buildAnalysis(first, second, headToHead);
+  },
+  async chat(payload: { first: Player; second: Player; headToHead: HeadToHead | null; analysis: Analysis | null; messages: ChatMessage[]; question: string }) {
+    try {
+      const response = await fetch(apiPath("/api/chat"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (response.ok) {
+        return (await response.json()) as { reply: string; generatedBy: string };
+      }
+    } catch {
+      // Keep the chat box usable in local/static fallback mode.
+    }
+
+    const lean = payload.analysis?.pick ? `Current lean: ${payload.analysis.pick}. ` : "";
+    return {
+      reply: `${lean}I can answer from the loaded matchup, but the OpenAI chat endpoint is not available right now. Key local points: ${payload.analysis?.edges?.slice(0, 2).join(" ") || "load both player profiles first."}`,
+      generatedBy: "Local fallback",
+    };
   },
 };
 
@@ -1061,6 +1087,8 @@ function App() {
   const [error, setError] = React.useState<string | null>(null);
   const [isFetchingPlayer, setIsFetchingPlayer] = React.useState(false);
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [chatMessages, setChatMessages] = React.useState<ChatMessage[]>([]);
+  const [isChatting, setIsChatting] = React.useState(false);
 
   React.useEffect(() => {
     tennisApi.getStatus().then(setStatus).catch(() => setError("Could not load app status."));
@@ -1083,6 +1111,7 @@ function App() {
       })
       .then((nextAnalysis) => {
         setAnalysis(nextAnalysis);
+        setChatMessages([{ role: "assistant", content: formatInitialChatAnalysis(nextAnalysis) }]);
         setIsAnalyzing(false);
       })
       .catch(() => {
@@ -1123,58 +1152,271 @@ function App() {
   }, [availablePlayers]);
 
   return (
-    <main className="app-shell">
-      <section className="toolbar" aria-label="Player comparison controls">
-        <div className="player-search-slot player-search-left">
-          <PlayerSearch label="Player one" value={playerAId} onSelect={(result) => selectPlayer(result, "a")} players={availablePlayers} blockedId={playerBId} />
-        </div>
-        <div className="title-lockup">
-          <p className="eyebrow">Tennis analysis</p>
-          <h1>Head-to-head dashboard</h1>
-          <button
-            className="icon-button"
-            type="button"
-            title="Swap players"
-            aria-label="Swap players"
-            disabled={!canSwap || isFetchingPlayer}
-            onClick={() => {
-              setPlayerAId(playerBId);
-              setPlayerBId(playerAId);
-            }}
-          >
-            <ArrowDownUp size={18} />
-          </button>
-        </div>
-        <div className="player-search-slot player-search-right">
-          <PlayerSearch label="Player two" value={playerBId} onSelect={(result) => selectPlayer(result, "b")} players={availablePlayers} blockedId={playerAId} />
-        </div>
+    <main className="scorecard-shell">
+      <section className="match-controls" aria-label="Player comparison controls">
+        <PlayerSearch label="Left player" value={playerAId} onSelect={(result) => selectPlayer(result, "a")} players={availablePlayers} blockedId={playerBId} />
+        <button
+          className="swap-button"
+          type="button"
+          title="Swap players"
+          aria-label="Swap players"
+          disabled={!canSwap || isFetchingPlayer}
+          onClick={() => {
+            setPlayerAId(playerBId);
+            setPlayerBId(playerAId);
+          }}
+        >
+          <ArrowDownUp size={18} />
+        </button>
+        <PlayerSearch label="Right player" value={playerBId} onSelect={(result) => selectPlayer(result, "b")} players={availablePlayers} blockedId={playerAId} />
       </section>
 
-      <StatusStrip status={status} onRefresh={loadComparison} isLoading={isLoading || isFetchingPlayer || isAnalyzing} />
       {error && <ErrorBanner message={error} onRetry={loadComparison} />}
 
       {comparison && (
-        <div className={isLoading ? "dashboard is-loading" : "dashboard"}>
-          <section className="overview-grid" aria-label="Player overview">
-            <PlayerSummary player={comparison.first} />
-            <HeadToHeadCard first={comparison.first} second={comparison.second} record={comparison.headToHead} upcomingMatch={comparison.upcomingMatch} />
-            <PlayerSummary player={comparison.second} align="right" />
+        <div className={isLoading ? "match-board is-loading" : "match-board"}>
+          <section className="player-lanes" aria-label="Recent form">
+            <PlayerLane player={comparison.first} side="left" />
+            <div className="versus-tile">
+              <span>{new Date().getFullYear()}</span>
+              <strong>vs</strong>
+              <small>{comparison.headToHead ? `${comparison.headToHead.winsA}-${comparison.headToHead.winsB} H2H` : "No H2H"}</small>
+            </div>
+            <PlayerLane player={comparison.second} side="right" />
           </section>
 
-          <section className="comparison-grid" aria-label="Comparison details">
-            <SurfacePanel player={comparison.first} />
-            <SurfacePanel player={comparison.second} />
-            <MatchHistory player={comparison.first} />
-            <MatchHistory player={comparison.second} />
+          <section className="record-row" aria-label="Season records">
+            <YearRecord player={comparison.first} />
+            <YearSelector />
+            <YearRecord player={comparison.second} />
           </section>
 
-          <section className="insight-grid" aria-label="Analysis">
-            {analysis ? <AnalysisPanel analysis={analysis} /> : <DeepLookupPanel isFetchingPlayer={isFetchingPlayer} />}
+          <section className="surface-scoreboard" aria-label="Surface records">
+            {(["Hard", "Clay", "Grass"] as Surface[]).map((surface) => (
+              <SurfaceScoreRow key={surface} first={comparison.first} second={comparison.second} surface={surface} />
+            ))}
           </section>
+
+          <section className="info-row" aria-label="Player details">
+            <PlayerDetails player={comparison.first} />
+            <ProviderBadge status={status} isBusy={isFetchingPlayer || isAnalyzing} onRefresh={loadComparison} />
+            <PlayerDetails player={comparison.second} align="right" />
+          </section>
+
+          <AiChatPanel
+            analysis={analysis}
+            comparison={comparison}
+            messages={chatMessages}
+            isLoading={isAnalyzing}
+            isChatting={isChatting}
+            onAsk={async (question) => {
+              if (!comparison || !question.trim()) return;
+              const userMessage: ChatMessage = { role: "user", content: question.trim() };
+              const nextMessages = [...chatMessages, userMessage];
+              setChatMessages(nextMessages);
+              setIsChatting(true);
+              try {
+                const response = await tennisApi.chat({ ...comparison, analysis, messages: nextMessages, question: question.trim() });
+                setChatMessages((current) => [...current, { role: "assistant", content: response.reply }]);
+              } catch {
+                setChatMessages((current) => [...current, { role: "assistant", content: "I could not reach the AI chat endpoint. The matchup card above is still live." }]);
+              } finally {
+                setIsChatting(false);
+              }
+            }}
+          />
         </div>
       )}
     </main>
   );
+}
+
+function formatInitialChatAnalysis(analysis: Analysis) {
+  return `${analysis.headline}\n\nPick: ${analysis.pick} (${analysis.conviction})\n\n${analysis.narrative}`;
+}
+
+function PlayerLane({ player, side }: { player: Player; side: "left" | "right" }) {
+  const recent = latestMatches(player, 10);
+  return (
+    <article className={`player-lane ${side}`}>
+      <div className="name-plate">
+        <span>{player.tour === "W" ? "WTA" : "ATP"}</span>
+        <strong>{shortName(player.name)}</strong>
+      </div>
+      <div className="form-dots" aria-label={`${player.name} recent results`}>
+        {recent.map((match) => (
+          <span className={match.result === "W" ? "form-dot win" : "form-dot loss"} key={`${player.id}-${match.date}-${match.opponent}`} title={`${match.result} vs ${match.opponent}`}>
+            {match.result}
+          </span>
+        ))}
+        <b aria-hidden="true">»»</b>
+      </div>
+      <div className="lane-facts">
+        <span>Age {player.age || "?"}</span>
+        <span>{player.country || "UNK"}</span>
+        <span>{player.ranking ? `#${player.ranking}` : "Unranked"}</span>
+      </div>
+    </article>
+  );
+}
+
+function YearRecord({ player }: { player: Player }) {
+  const record = matchRecord(currentYearMatches(player));
+  const wins = record.wins || player.seasonRecord.wins;
+  const losses = record.losses || player.seasonRecord.losses;
+  const rate = winRate(wins, losses);
+  return (
+    <article className="year-record">
+      <strong>
+        {wins} - {losses}
+      </strong>
+      <div className="pie" style={{ "--win": `${rate}%` } as React.CSSProperties}>
+        <span>Win</span>
+        <b>{rate}%</b>
+        <small>Loss</small>
+      </div>
+    </article>
+  );
+}
+
+function YearSelector() {
+  const year = new Date().getFullYear();
+  return (
+    <div className="year-stack" aria-label="Selected season">
+      <strong>{year}</strong>
+      <span>{year - 1}</span>
+      <span>{year - 2}</span>
+    </div>
+  );
+}
+
+function SurfaceScoreRow({ first, second, surface }: { first: Player; second: Player; surface: Surface }) {
+  const firstRecord = surfaceRecordFor(first, surface);
+  const secondRecord = surfaceRecordFor(second, surface);
+  return (
+    <div className={`surface-score ${surface.toLowerCase()}`}>
+      <strong className={surfaceRecordClass(firstRecord)}>{formatRecord(firstRecord.wins, firstRecord.losses)}</strong>
+      <span>{surface}</span>
+      <strong className={surfaceRecordClass(secondRecord)}>{formatRecord(secondRecord.wins, secondRecord.losses)}</strong>
+    </div>
+  );
+}
+
+function PlayerDetails({ player, align = "left" }: { player: Player; align?: "left" | "right" }) {
+  const recent = matchRecord(latestMatches(player, 10));
+  const best = bestSurface(player);
+  const publicProfile = player.apiStats?.publicStats?.profile;
+  return (
+    <article className={`detail-card ${align === "right" ? "align-right" : ""}`}>
+      <h2>{player.name}</h2>
+      <div>
+        <span>Age</span>
+        <strong>{player.age || publicProfile?.age || "Unknown"}</strong>
+      </div>
+      <div>
+        <span>Recent form</span>
+        <strong>{formatRecord(recent.wins, recent.losses)}</strong>
+      </div>
+      <div>
+        <span>Best surface</span>
+        <strong>
+          {best.surface} {surfaceWinRate(best)}%
+        </strong>
+      </div>
+      {publicProfile?.hand && (
+        <div>
+          <span>Forehand</span>
+          <strong>{publicProfile.hand}</strong>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function ProviderBadge({ status, isBusy, onRefresh }: { status: AppStatus | null; isBusy: boolean; onRefresh: () => void }) {
+  const rapid = status?.providers.find((provider) => provider.name === "Rapid Tennis API");
+  const openai = status?.providers.find((provider) => provider.name === "OpenAI");
+  return (
+    <aside className="provider-badge">
+      <button className="refresh-button" type="button" onClick={onRefresh} disabled={isBusy}>
+        <RefreshCw size={15} />
+        Refresh
+      </button>
+      <span className={rapid?.status === "ready" ? "ready" : "muted"}>Rapid {rapid?.status || "checking"}</span>
+      <span className={openai?.status === "ready" ? "ready" : "muted"}>OpenAI {openai?.status || "checking"}</span>
+    </aside>
+  );
+}
+
+function AiChatPanel({
+  analysis,
+  comparison,
+  messages,
+  isLoading,
+  isChatting,
+  onAsk,
+}: {
+  analysis: Analysis | null;
+  comparison: { first: Player; second: Player; headToHead: HeadToHead | null; upcomingMatch: UpcomingMatch | null };
+  messages: ChatMessage[];
+  isLoading: boolean;
+  isChatting: boolean;
+  onAsk: (question: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = React.useState("");
+  const disabled = isLoading || isChatting || !draft.trim();
+  return (
+    <section className="ai-chat" aria-label="AI matchup chat">
+      <div className="chat-heading">
+        <div>
+          <span>AI read</span>
+          <strong>{comparison.first.name} vs {comparison.second.name}</strong>
+        </div>
+        <Bot size={20} />
+      </div>
+      <div className="chat-log">
+        {isLoading && <div className="chat-message assistant">Building the matchup read...</div>}
+        {!isLoading && messages.length === 0 && <div className="chat-message assistant">Analysis will appear here once both profiles load.</div>}
+        {messages.map((message, index) => (
+          <div className={`chat-message ${message.role}`} key={`${message.role}-${index}`}>
+            {message.content}
+          </div>
+        ))}
+        {isChatting && <div className="chat-message assistant">Thinking...</div>}
+      </div>
+      <form
+        className="chat-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const question = draft.trim();
+          if (!question) return;
+          setDraft("");
+          void onAsk(question);
+        }}
+      >
+        <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={analysis ? "Ask about timing, surface, risk, or a live angle" : "Waiting for analysis"} />
+        <button type="submit" disabled={disabled} aria-label="Send chat question">
+          <Send size={18} />
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function surfaceRecordFor(player: Player, surface: Surface) {
+  return player.careerSurfaces.find((record) => record.surface === surface) || { surface, wins: 0, losses: 0 };
+}
+
+function surfaceRecordClass(record: SurfaceRecord) {
+  const rate = surfaceWinRate(record);
+  if (rate >= 58) return "positive";
+  if (rate <= 45) return "negative";
+  return "neutral";
+}
+
+function shortName(name: string) {
+  const parts = name.trim().split(/\s+/);
+  return parts.at(-1) || name;
 }
 
 function DeepLookupPanel({ isFetchingPlayer }: { isFetchingPlayer: boolean }) {

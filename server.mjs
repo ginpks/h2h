@@ -162,6 +162,17 @@ createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/api/chat") {
+      const body = await readJson(request);
+      if (!body.first || !body.second || !body.question) {
+        response.writeHead(400, { "Content-Type": mimeTypes[".json"] });
+        response.end(JSON.stringify({ error: "Expected first, second, and question" }));
+        return;
+      }
+      writeJson(response, await createOpenAiChatReply(body));
+      return;
+    }
+
     if (request.method !== "GET") {
       response.writeHead(405);
       response.end("Method not allowed");
@@ -1028,6 +1039,71 @@ async function createOpenAiAnalysis(payload) {
   }
 
   return { ...JSON.parse(text), generatedBy: `OpenAI Responses API (${process.env.OPENAI_MODEL || "gpt-5.5"})` };
+}
+
+async function createOpenAiChatReply(payload) {
+  const enrichedPayload = enrichAnalysisPayload(payload);
+  const fallbackReply = localChatReply(enrichedPayload);
+  if (!process.env.OPENAI_API_KEY) {
+    return { reply: fallbackReply, generatedBy: "Local fallback" };
+  }
+
+  const history = asArray(payload.messages)
+    .slice(-8)
+    .map((message) => ({
+      role: message.role === "user" ? "user" : "assistant",
+      content: String(message.content || "").slice(0, 2400),
+    }));
+
+  const apiResponse = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL || "gpt-5.5",
+      input: [
+        {
+          role: "system",
+          content:
+            "You are a concise tennis betting analyst embedded in a matchup dashboard. Answer follow-up questions only from the supplied player data, computed stat pack, and initial analysis. If data is missing, say so plainly. Keep replies under 140 words unless the user asks for detail. Do not invent injuries, handedness, odds, or news.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            first: enrichedPayload.first,
+            second: enrichedPayload.second,
+            headToHead: enrichedPayload.headToHead,
+            statPack: enrichedPayload.statPack,
+            initialAnalysis: payload.analysis,
+          }),
+        },
+        ...history,
+        { role: "user", content: String(payload.question || "") },
+      ],
+    }),
+  });
+
+  if (!apiResponse.ok) {
+    return { reply: fallbackReply, generatedBy: "Local fallback" };
+  }
+
+  const data = await apiResponse.json();
+  const reply = data.output_text || data.output?.flatMap((item) => item.content || []).find((item) => item.type === "output_text")?.text;
+  return { reply: reply || fallbackReply, generatedBy: reply ? `OpenAI Responses API (${process.env.OPENAI_MODEL || "gpt-5.5"})` : "Local fallback" };
+}
+
+function localChatReply(payload) {
+  const analysis = payload.analysis || localAnalysis(payload, "Local analysis");
+  const question = String(payload.question || "").toLowerCase();
+  if (question.includes("risk")) {
+    return `Biggest risks: ${asArray(analysis.risks).slice(0, 2).join(" ") || "limited match-log depth and price timing."}`;
+  }
+  if (question.includes("surface")) {
+    return `${payload.first?.name || "Player one"} best surface: ${payload.statPack?.first?.bestSurface?.surface || "unknown"}. ${payload.second?.name || "Player two"} best surface: ${payload.statPack?.second?.bestSurface?.surface || "unknown"}.`;
+  }
+  return `${analysis.pick ? `Lean: ${analysis.pick}. ` : ""}${analysis.narrative || "The loaded matchup data is thin, so treat this as a cautious read."}`;
 }
 
 function enrichAnalysisPayload(payload) {
