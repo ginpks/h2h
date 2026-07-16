@@ -8,8 +8,8 @@ import {
   CalendarDays,
   Crown,
   Database,
-  ExternalLink,
   Gauge,
+  LoaderCircle,
   Medal,
   RefreshCw,
   Search,
@@ -37,6 +37,9 @@ type Match = {
   surface: Surface;
   result: MatchResult;
   score: string;
+  stats?: Record<string, number | string | null>;
+  opponentStats?: Record<string, number | string | null>;
+  odds?: { player: string | null; opponent: string | null };
 };
 
 type UpcomingMatch = {
@@ -49,6 +52,8 @@ type UpcomingMatch = {
 
 type Player = {
   id: string;
+  rapidId?: number;
+  tour?: "M" | "W";
   name: string;
   country: string;
   age: number;
@@ -59,6 +64,37 @@ type Player = {
   careerSurfaces: SurfaceRecord[];
   matches: Match[];
   upcomingMatches?: UpcomingMatch[];
+  apiStats?: {
+    source: string;
+    fetchedAt: string;
+    rapidId?: number;
+    recentGames?: string[];
+    careerRecord?: { wins: number; losses: number };
+    totalMatches?: number;
+    matchLogCount?: number;
+    bestRank?: { position?: number; date?: string } | null;
+    favouriteCourt?: { wins?: number; losses?: number; surface?: string } | null;
+    singlesCount?: number;
+    publicStats?: {
+      source: string;
+      url: string;
+      fetchedAt: string;
+      profile?: {
+        age?: number;
+        hand?: string | null;
+        serveSpeed?: string | null;
+        serveSpeedPercentile?: number;
+      };
+      recentForm?: MatchResult[];
+      currentYearRecord?: { wins: number; losses: number; winRate: number } | null;
+      careerRecord?: { wins: number; losses: number; totalMatches: number; winRate: number } | null;
+      surfaceCareer?: Record<string, { percent: number; wins: number; losses: number; total: number }>;
+      matchSet?: {
+        currentYear?: Record<string, { percent: number | null; last12MonthsPercent: number | null; percentile: number }>;
+        career?: Record<string, { percent: number | null; number: string; percentile: number }>;
+      };
+    } | null;
+  };
 };
 
 type HeadToHead = {
@@ -69,18 +105,15 @@ type HeadToHead = {
   meetings: Match[];
 };
 
-type DataSource = {
-  name: string;
-  url: string;
-  covers: string[];
-  note: string;
-};
-
 type Analysis = {
   headline: string;
+  pick: string;
+  conviction: string;
+  narrative: string;
   generatedBy: string;
   confidence: string;
   edges: string[];
+  redFlags: string[];
   risks: string[];
   focus: string[];
 };
@@ -247,33 +280,6 @@ const headToHeads: HeadToHead[] = [
   },
 ];
 
-const dataSources: DataSource[] = [
-  {
-    name: "ATP Tour",
-    url: "https://www.atptour.com/en/rankings/singles/live",
-    covers: ["ATP rankings", "player profiles", "official men's stats"],
-    note: "Primary source for ATP ranking, points, official player metadata, and tour-level stat pages.",
-  },
-  {
-    name: "WTA Tour",
-    url: "https://www.wtatennis.com/rankings/singles",
-    covers: ["WTA rankings", "player profiles", "official women's stats", "WTA head-to-head"],
-    note: "Primary source for WTA ranking, points, match context, and official women's player pages.",
-  },
-  {
-    name: "Tennis Abstract",
-    url: "https://www.tennisabstract.com/",
-    covers: ["surface records", "match logs", "head-to-head history", "career splits"],
-    note: "Useful normalized source for surface splits, match history, and H2H tables across ATP and WTA.",
-  },
-  {
-    name: "OpenAI Responses API",
-    url: "https://developers.openai.com/api/reference/responses/overview/",
-    covers: ["matchup summary", "risk notes", "analysis narrative"],
-    note: "OpenAI should analyze already-fetched tennis facts; it should not be treated as the source of the raw stats.",
-  },
-];
-
 const tennisApi = {
   async getStatus() {
     try {
@@ -292,7 +298,7 @@ const tennisApi = {
       providers: [
         { name: "Demo dataset", status: "ready", detail: "Bundled sample players and matches" },
         { name: "OpenAI", status: "planned", detail: "Set OPENAI_API_KEY and run npm run serve" },
-        { name: "Tennis Abstract", status: "ready", detail: "Live player search and stat fetch" },
+        { name: "Rapid Tennis API", status: "planned", detail: "Set RAPID_TENNIS_API_KEY and run npm run serve" },
       ],
     } satisfies AppStatus;
   },
@@ -448,7 +454,7 @@ function latestMatches(player: Player, limit = 10) {
 }
 
 function currentYearMatches(player: Player) {
-  return player.matches.filter((match) => match.date.startsWith("2026-"));
+  return player.matches.filter((match) => match.date.startsWith(`${new Date().getFullYear()}-`));
 }
 
 function matchRecord(matches: Match[]) {
@@ -464,38 +470,560 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(`${value}T12:00:00`));
 }
 
+type SetScore = {
+  playerGames: number;
+  opponentGames: number;
+};
+
+type PlayerProfile = {
+  player: Player;
+  recentMatches: Match[];
+  seasonMatches: Match[];
+  recent: ReturnType<typeof matchRecord>;
+  season: ReturnType<typeof matchRecord>;
+  career: ReturnType<typeof matchRecord>;
+  setRecords: Array<{ setNumber: number; wins: number; losses: number; winRate: number }>;
+  decidingSet: { wins: number; losses: number; winRate: number; streak: number; streakResult: MatchResult | null };
+  seasonDecidingSet: { wins: number; losses: number; winRate: number; streak: number; streakResult: MatchResult | null };
+  setOneCloseout: { chances: number; matchWins: number; matchWinRate: number; straightSetWins: number; straightSetWinRate: number };
+  tieBreaks: { wins: number; losses: number; winRate: number };
+  straightSets: { wins: number; losses: number; winRate: number };
+  strongestSet: { setNumber: number; wins: number; losses: number; winRate: number };
+  weakestSet: { setNumber: number; wins: number; losses: number; winRate: number };
+  currentStreak: { result: MatchResult | null; count: number };
+  totalMatches: number;
+  bestSurfaceRecord: SurfaceRecord;
+};
+
+function buildPlayerProfile(player: Player): PlayerProfile {
+  const allMatches = [...player.matches].sort((a, b) => b.date.localeCompare(a.date));
+  const recentMatches = allMatches.slice(0, 10);
+  const seasonMatches = currentYearMatches(player);
+  const career = matchRecord(allMatches);
+  const setRecords = [1, 2, 3].map((setNumber) => setRecord(allMatches, setNumber));
+  const setThree = setRecords[2];
+  return {
+    player,
+    recentMatches,
+    seasonMatches,
+    recent: matchRecord(recentMatches),
+    season: matchRecord(seasonMatches),
+    career,
+    setRecords,
+    decidingSet: decidingSetRecord(allMatches),
+    seasonDecidingSet: decidingSetRecord(seasonMatches),
+    setOneCloseout: setOneCloseoutRecord(allMatches),
+    tieBreaks: tieBreakRecord(allMatches),
+    straightSets: straightSetsRecord(allMatches),
+    strongestSet: [...setRecords].sort((a, b) => b.winRate - a.winRate || b.wins + b.losses - (a.wins + a.losses))[0],
+    weakestSet: [...setRecords].sort((a, b) => a.winRate - b.winRate || b.wins + b.losses - (a.wins + a.losses))[0],
+    currentStreak: resultStreak(allMatches),
+    totalMatches: Math.max(allMatches.length, player.careerSurfaces.reduce((sum, surface) => sum + surface.wins + surface.losses, 0)),
+    bestSurfaceRecord: bestSurface(player),
+  };
+}
+
+function parseScoreSets(score: string): SetScore[] {
+  return String(score || "")
+    .split(/\s+/)
+    .map((part) => part.replace(/\([^)]*\)/g, "").replace(/\[[^\]]*\]/g, ""))
+    .map((part) => part.match(/^(\d+)-(\d+)/))
+    .filter((match): match is RegExpMatchArray => Boolean(match))
+    .map((match) => ({ playerGames: Number(match[1]), opponentGames: Number(match[2]) }))
+    .filter((set) => Number.isFinite(set.playerGames) && Number.isFinite(set.opponentGames));
+}
+
+function setRecord(matches: Match[], setNumber: number) {
+  const sets = matches.map((match) => parseScoreSets(match.score)[setNumber - 1]).filter(Boolean);
+  const wins = sets.filter((set) => set.playerGames > set.opponentGames).length;
+  const losses = sets.filter((set) => set.playerGames < set.opponentGames).length;
+  return { setNumber, wins, losses, winRate: winRate(wins, losses) };
+}
+
+function decidingSetRecord(matches: Match[]) {
+  const deciding = matches.filter((match) => parseScoreSets(match.score).length >= 3);
+  const wins = deciding.filter((match) => match.result === "W").length;
+  const losses = deciding.length - wins;
+  const streak = resultStreak(deciding);
+  return { wins, losses, winRate: winRate(wins, losses), streak: streak.count, streakResult: streak.result };
+}
+
+function setOneCloseoutRecord(matches: Match[]) {
+  const afterSetOne = matches.filter((match) => {
+    const firstSet = parseScoreSets(match.score)[0];
+    return firstSet && firstSet.playerGames > firstSet.opponentGames;
+  });
+  const matchWins = afterSetOne.filter((match) => match.result === "W").length;
+  const straightSetWins = afterSetOne.filter((match) => match.result === "W" && parseScoreSets(match.score).length === 2).length;
+  return {
+    chances: afterSetOne.length,
+    matchWins,
+    matchWinRate: winRate(matchWins, afterSetOne.length - matchWins),
+    straightSetWins,
+    straightSetWinRate: winRate(straightSetWins, afterSetOne.length - straightSetWins),
+  };
+}
+
+function tieBreakRecord(matches: Match[]) {
+  const tieBreakSets = matches.flatMap((match) => parseScoreSets(match.score).filter((set) => set.playerGames === 7 && set.opponentGames === 6 || set.playerGames === 6 && set.opponentGames === 7));
+  const wins = tieBreakSets.filter((set) => set.playerGames > set.opponentGames).length;
+  const losses = tieBreakSets.length - wins;
+  return { wins, losses, winRate: winRate(wins, losses) };
+}
+
+function straightSetsRecord(matches: Match[]) {
+  const straight = matches.filter((match) => {
+    const sets = parseScoreSets(match.score);
+    return sets.length >= 2 && sets.every((set) => set.playerGames !== set.opponentGames) && new Set(sets.map((set) => set.playerGames > set.opponentGames)).size === 1;
+  });
+  const wins = straight.filter((match) => match.result === "W").length;
+  const losses = straight.length - wins;
+  return { wins, losses, winRate: winRate(wins, losses) };
+}
+
+function resultStreak(matches: Match[]) {
+  const sorted = [...matches].sort((a, b) => b.date.localeCompare(a.date));
+  const result = sorted[0]?.result ?? null;
+  if (!result) return { result, count: 0 };
+  return {
+    result,
+    count: sorted.findIndex((match) => match.result !== result) === -1 ? sorted.length : sorted.findIndex((match) => match.result !== result),
+  };
+}
+
+function percentagePointGap(firstRate: number, secondRate: number) {
+  return Math.abs(firstRate - secondRate);
+}
+
+function formatStreak(profile: PlayerProfile) {
+  if (!profile.currentStreak.result) return `${profile.player.name} has no loaded recent result streak.`;
+  const label = profile.currentStreak.result === "W" ? "won" : "lost";
+  return `${profile.player.name} has ${label} ${profile.currentStreak.count} straight loaded matches and is ${formatRecord(profile.recent.wins, profile.recent.losses)} over the last ${profile.recentMatches.length}.`;
+}
+
+function publicCurrentRow(profile: PlayerProfile, label: string) {
+  return profile.player.apiStats?.publicStats?.matchSet?.currentYear?.[label] ?? null;
+}
+
+function publicCareerRow(profile: PlayerProfile, label: string) {
+  return profile.player.apiStats?.publicStats?.matchSet?.career?.[label] ?? null;
+}
+
+function publicCareerTotal(profile: PlayerProfile) {
+  return profile.player.apiStats?.publicStats?.careerRecord?.totalMatches || profile.player.apiStats?.totalMatches || profile.totalMatches;
+}
+
+function publicSeasonRecord(profile: PlayerProfile) {
+  return profile.player.apiStats?.publicStats?.currentYearRecord || profile.season;
+}
+
+function publicBioProfile(profile: PlayerProfile) {
+  return profile.player.apiStats?.publicStats?.profile || {};
+}
+
+function publicCareerSurface(profile: PlayerProfile, surface: string) {
+  return profile.player.apiStats?.publicStats?.surfaceCareer?.[surface] ?? null;
+}
+
+function profileAge(profile: PlayerProfile) {
+  return publicBioProfile(profile).age || profile.player.age || 0;
+}
+
+function publicFormRecord(profile: PlayerProfile) {
+  const form = profile.player.apiStats?.publicStats?.recentForm || [];
+  if (form.length < 5) return null;
+  const wins = form.filter((result) => result === "W").length;
+  const losses = form.length - wins;
+  return { wins, losses, total: form.length, winRate: winRate(wins, losses) };
+}
+
+function formatPublicSetSentence(favorite: PlayerProfile, opponent: PlayerProfile) {
+  const labels = ["Set 1 Win", "Set 2 Win", "Set 3 Win"];
+  const favoriteRows = labels.map((label) => publicCurrentRow(favorite, label));
+  const opponentRows = labels.map((label) => publicCurrentRow(opponent, label));
+  if (favoriteRows.some((row) => !row) || opponentRows.some((row) => !row)) return "";
+
+  const favoriteRates = favoriteRows.map((row) => row?.percent ?? 0);
+  const opponentRates = opponentRows.map((row) => row?.percent ?? 0);
+  const favoriteHigherEverywhere = favoriteRates.every((rate, index) => rate > opponentRates[index]);
+  const strongestIndex = favoriteRates.indexOf(Math.max(...favoriteRates));
+  const opponentWeakestIndex = opponentRates.indexOf(Math.min(...opponentRates));
+  const setList = (rates: number[]) => rates.map((rate) => `${rate}%`).join(" / ");
+
+  if (favoriteHigherEverywhere) {
+    return `${favorite.player.name} has the higher current-year set win rate in set 1, set 2, and set 3: ${setList(favoriteRates)} compared to ${opponent.player.name} at ${setList(opponentRates)}.`;
+  }
+
+  return `${favorite.player.name}'s best current-year set is set ${strongestIndex + 1} at ${favoriteRates[strongestIndex]}%. ${opponent.player.name}'s lowest current-year split is set ${opponentWeakestIndex + 1} at ${opponentRates[opponentWeakestIndex]}%.`;
+}
+
+function formatHandednessRead(favorite: PlayerProfile, opponent: PlayerProfile) {
+  const favoriteHand = publicBioProfile(favorite).hand;
+  const opponentHand = publicBioProfile(opponent).hand;
+  if (!favoriteHand && !opponentHand) return "";
+  if (favoriteHand && opponentHand) {
+    return `${favorite.player.name} is ${favoriteHand}; ${opponent.player.name} is ${opponentHand}.`;
+  }
+  const profile = favoriteHand ? favorite : opponent;
+  return `${profile.player.name} is ${publicBioProfile(profile).hand}.`;
+}
+
+function formatAgeRead(favorite: PlayerProfile, opponent: PlayerProfile) {
+  const favoriteAge = profileAge(favorite);
+  const opponentAge = profileAge(opponent);
+  if (!favoriteAge || !opponentAge) return "";
+  const gap = Math.abs(favoriteAge - opponentAge);
+  if (opponentAge >= 35 && gap >= 8) {
+    return `${opponent.player.name} is ${opponentAge}. ${favorite.player.name} is ${favoriteAge}, so the age/recovery gap is real if this turns physical.`;
+  }
+  if (favoriteAge >= 35 && gap >= 8) {
+    return `${favorite.player.name} is ${favoriteAge}, so the pick needs the stats to overcome the age/recovery risk against ${opponent.player.name} at ${opponentAge}.`;
+  }
+  if (gap >= 10) {
+    return `${favorite.player.name} is ${favoriteAge}; ${opponent.player.name} is ${opponentAge}. That age gap is worth noting, but it is not the whole case.`;
+  }
+  return "";
+}
+
+function daysSinceLatestMatch(profile: PlayerProfile) {
+  const latest = profile.recentMatches[0]?.date;
+  if (!latest) return 0;
+  const latestDate = new Date(`${latest}T12:00:00Z`);
+  if (Number.isNaN(latestDate.getTime())) return 0;
+  return Math.max(0, Math.round((Date.now() - latestDate.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
+function formatInactivityRead(favorite: PlayerProfile, opponent: PlayerProfile) {
+  const favoriteGap = daysSinceLatestMatch(favorite);
+  const opponentGap = daysSinceLatestMatch(opponent);
+  if (favoriteGap >= 180) {
+    return `${favorite.player.name} has a ${favoriteGap}-day gap since the latest loaded singles match. That is not normal favorite behavior unless there is fresher context elsewhere.`;
+  }
+  if (opponentGap >= 180) {
+    return `${opponent.player.name} has a ${opponentGap}-day gap since the latest loaded singles match, so price and live hold matter more than stale career stats.`;
+  }
+  return "";
+}
+
+function scoreProfile(profile: PlayerProfile, opponent: PlayerProfile) {
+  return (
+    profile.recent.winRate - opponent.recent.winRate +
+    (profile.season.winRate - opponent.season.winRate) * 0.8 +
+    (profile.decidingSet.winRate - opponent.decidingSet.winRate) * 0.65 +
+    (surfaceWinRate(profile.bestSurfaceRecord) - surfaceWinRate(opponent.bestSurfaceRecord)) * 0.3 +
+    (profile.currentStreak.result === "W" ? profile.currentStreak.count * 2 : -profile.currentStreak.count * 2)
+  );
+}
+
 function buildAnalysis(first: Player, second: Player, headToHead: HeadToHead | null): Analysis {
-  const firstSurface = bestSurface(first);
-  const secondSurface = bestSurface(second);
-  const firstForm = recentWinRate(first);
-  const secondForm = recentWinRate(second);
-  const firstSeason = matchRecord(currentYearMatches(first));
-  const secondSeason = matchRecord(currentYearMatches(second));
-  const formLeader = firstForm >= secondForm ? first : second;
-  const surfaceLeader = surfaceWinRate(firstSurface) >= surfaceWinRate(secondSurface) ? first : second;
+  const firstProfile = buildPlayerProfile(first);
+  const secondProfile = buildPlayerProfile(second);
+  const firstScore = scoreProfile(firstProfile, secondProfile);
+  const secondScore = scoreProfile(secondProfile, firstProfile);
+  const favorite = firstScore >= secondScore ? firstProfile : secondProfile;
+  const opponent = favorite === firstProfile ? secondProfile : firstProfile;
+  const confidenceGap = Math.round(Math.abs(firstScore - secondScore));
+  const setThreeGap = percentagePointGap(favorite.decidingSet.winRate, opponent.decidingSet.winRate);
   const h2hText = headToHead
-    ? `${first.name} is ${headToHead.winsA}-${headToHead.winsB} against ${second.name} in the loaded H2H sample.`
-    : "No direct meeting is loaded for this pair, so this read leans more heavily on form and surface profile.";
+    ? `${first.name} is ${headToHead.winsA}-${headToHead.winsB} against ${second.name} in loaded H2H.`
+    : "No direct H2H is loaded, so this is driven by form, set splits, surface, and match-history patterns.";
+  const totalMatches = publicCareerTotal(favorite);
+  const opponentTotalMatches = publicCareerTotal(opponent);
+  const favoriteSeason = publicSeasonRecord(favorite);
+  const opponentSeason = publicSeasonRecord(opponent);
+  const recentSentence = formatRecentRead(favorite, opponent);
+  const favoriteSetAverage = Math.round(favorite.setRecords.reduce((sum, record) => sum + record.winRate, 0) / favorite.setRecords.length);
+  const opponentSetAverage = Math.round(opponent.setRecords.reduce((sum, record) => sum + record.winRate, 0) / opponent.setRecords.length);
+  const setSentence = formatPublicSetSentence(favorite, opponent) || (
+    favoriteSetAverage >= opponentSetAverage
+      ? `${favorite.player.name}'s highest set win rate is set ${favorite.strongestSet.setNumber} at ${favorite.strongestSet.winRate}%. Set 1/2/3 is ${favorite.setRecords.map((record) => `${record.winRate}%`).join(" / ")} compared to ${opponent.player.name} at ${opponent.setRecords.map((record) => `${record.winRate}%`).join(" / ")}.`
+      : `The set profile is the warning, not the reason for the pick: ${favorite.player.name} is ${favorite.setRecords.map((record) => `${record.winRate}%`).join(" / ")} in sets 1/2/3 while ${opponent.player.name} is ${opponent.setRecords.map((record) => `${record.winRate}%`).join(" / ")}.`
+  );
+  const decidingSentence = formatDecidingSetRead(favorite, opponent);
+  const closeoutSentence = formatSetOneCloseoutRead(favorite, opponent);
+  const tieBreakSentence = formatTieBreakRead(favorite, opponent);
+  const seasonSentence = `${favorite.player.name} is ${formatRecord(favoriteSeason.wins, favoriteSeason.losses)} this year (${favoriteSeason.winRate}%) with ${totalMatches} career matches behind the read. ${opponent.player.name} is ${formatRecord(opponentSeason.wins, opponentSeason.losses)} (${opponentSeason.winRate}%) across ${opponentTotalMatches}.`;
+  const pressurePoint = formatPressurePoint(favorite, opponent);
+  const conditionalPlay = formatConditionalPlayRead(favorite, opponent);
+  const fatigueSentence = formatLatestThreeSetFatigueRead(opponent);
+  const inactivitySentence = formatInactivityRead(favorite, opponent);
+  const handednessSentence = formatHandednessRead(favorite, opponent);
+  const ageSentence = formatAgeRead(favorite, opponent);
+  const glaringStats = buildGlaringStats(favorite, opponent);
+  const readout = [
+    `${favorite.player.name} is the lean here. ${recentSentence}`,
+    `${setSentence} ${decidingSentence}`,
+    closeoutSentence,
+    tieBreakSentence,
+    `${seasonSentence} ${pressurePoint}`,
+    conditionalPlay,
+    fatigueSentence,
+    inactivitySentence,
+    ageSentence,
+    handednessSentence,
+    ...glaringStats,
+    h2hText,
+    `${favorite.player.name.toUpperCase()} ML`,
+  ].filter(Boolean).join("\n\n");
 
   return {
-    headline: `${formLeader.name} has the sharper recent form; ${surfaceLeader.name} owns the cleaner surface signal.`,
+    headline: `${favorite.player.name} ML - ${favorite.recent.wins}/${favorite.recentMatches.length} recent wins, ${favorite.season.winRate}% this year, ${favorite.decidingSet.winRate}% deciding sets.`,
+    pick: `${favorite.player.name} ML`,
+    conviction: confidenceGap >= 55 ? "High" : confidenceGap >= 28 ? "Medium" : "Thin",
+    narrative: readout,
     generatedBy: "OpenAI-ready local analysis",
-    confidence: headToHead ? "Medium - includes direct H2H sample" : "Low - no H2H sample in current data",
+    confidence: headToHead ? "Medium - includes direct H2H sample" : "Medium-low - no direct H2H in current data",
     edges: [
-      `${first.name}: ${firstForm}% winrate over last ${latestMatches(first).length}, ${formatRecord(firstSeason.wins, firstSeason.losses)} in loaded 2026 matches, with ${firstSurface.surface} as the highest-volume career surface (${formatRecord(firstSurface.wins, firstSurface.losses)}).`,
-      `${second.name}: ${secondForm}% winrate over last ${latestMatches(second).length}, ${formatRecord(secondSeason.wins, secondSeason.losses)} in loaded 2026 matches, with ${secondSurface.surface} as the highest-volume career surface (${formatRecord(secondSurface.wins, secondSurface.losses)}).`,
+      `${favorite.player.name}: ${favorite.recent.winRate}% over last ${favorite.recentMatches.length}; ${favorite.season.winRate}% this season versus ${opponent.player.name} at ${opponent.season.winRate}%.`,
+      `Set splits: ${favorite.player.name} set 1/2/3 rates are ${favorite.setRecords.map((record) => `${record.winRate}%`).join(" / ")}; ${opponent.player.name} is ${opponent.setRecords.map((record) => `${record.winRate}%`).join(" / ")}.`,
+      `Deciding sets: ${favorite.player.name} ${formatRecord(favorite.decidingSet.wins, favorite.decidingSet.losses)} (${favorite.decidingSet.winRate}%) versus ${opponent.player.name} ${formatRecord(opponent.decidingSet.wins, opponent.decidingSet.losses)} (${opponent.decidingSet.winRate}%), a ${setThreeGap}-point gap.`,
+      `Set 1 closeout: ${favorite.player.name} wins ${favorite.setOneCloseout.matchWinRate}% of matches after taking set 1 and closes 2-0 at ${favorite.setOneCloseout.straightSetWinRate}%.`,
+      `Tiebreaks: ${favorite.player.name} ${formatRecord(favorite.tieBreaks.wins, favorite.tieBreaks.losses)} (${favorite.tieBreaks.winRate}%) versus ${opponent.player.name} ${formatRecord(opponent.tieBreaks.wins, opponent.tieBreaks.losses)} (${opponent.tieBreaks.winRate}%).`,
+      conditionalPlay,
+      fatigueSentence,
+      `${favorite.player.name} has ${totalMatches} API-backed career/sample matches behind this read; strongest surface sample is ${favorite.bestSurfaceRecord.surface} at ${surfaceWinRate(favorite.bestSurfaceRecord)}%.`,
       h2hText,
+    ].filter(Boolean).slice(0, 5),
+    redFlags: [
+      opponent.strongestSet.winRate >= 60
+        ? `${opponent.player.name}'s best set is set ${opponent.strongestSet.setNumber} at ${opponent.strongestSet.winRate}%, so that is a real counter-angle.`
+        : `${opponent.player.name}'s best set is set ${opponent.strongestSet.setNumber} at ${opponent.strongestSet.winRate}%; not glaring, but it is their cleanest split.`,
+      favorite.straightSets.losses > favorite.straightSets.wins
+        ? `${favorite.player.name} has more loaded straight-set losses than wins; avoid chasing if the first-set eye test is bad.`
+        : `${favorite.player.name} is ${formatRecord(favorite.straightSets.wins, favorite.straightSets.losses)} in loaded straight-set matches.`,
     ],
     risks: [
-      "Surface records are career-level and should be weighted against current tournament surface.",
-      "The current-year sample is only as complete as the selected data provider, so source timestamps still matter.",
+      "This is not betting advice; check price, injury/news context, and whether the feed is stale before acting.",
+      "Do not treat a good opponent record as weakness; only act when the price and the actual stat gap match.",
     ],
     focus: [
-      `Start with ${formLeader.name}'s first two service games to validate the form read.`,
-      `Check whether the match surface amplifies ${surfaceLeader.name}'s preferred pattern.`,
-      "Use live odds or point-by-point stats only after confirming the source timestamp.",
-    ],
+      `If ${favorite.player.name} wins set 1, the loaded closeout rate is ${favorite.setOneCloseout.matchWinRate}% and the 2-0 close rate is ${favorite.setOneCloseout.straightSetWinRate}%.`,
+      conditionalPlay,
+      fatigueSentence,
+      `If this goes to set 3, the loaded deciding-set edge favors ${favorite.decidingSet.winRate >= opponent.decidingSet.winRate ? favorite.player.name : opponent.player.name}.`,
+      opponent.weakestSet.winRate <= 45 ? `${opponent.player.name}'s weakest set is set ${opponent.weakestSet.setNumber} at ${opponent.weakestSet.winRate}%.` : `${opponent.player.name} does not have an obvious weak set in the loaded sample.`,
+    ].filter(Boolean).slice(0, 4),
   };
+}
+
+function formatRecentRead(favorite: PlayerProfile, opponent: PlayerProfile) {
+  const favoritePublic = publicFormRecord(favorite);
+  const opponentPublic = publicFormRecord(opponent);
+  if (favoritePublic && opponentPublic) {
+    const favoriteAction = favoritePublic.wins >= favoritePublic.losses ? `has won ${favoritePublic.wins} of the last ${favoritePublic.total}` : `has lost ${favoritePublic.losses} of the last ${favoritePublic.total}`;
+    const opponentAction = opponentPublic.wins >= 7 ? `is also hot at ${formatRecord(opponentPublic.wins, opponentPublic.losses)} recently` : opponentPublic.losses > opponentPublic.wins ? `has lost ${opponentPublic.losses} of the last ${opponentPublic.total}` : `is ${formatRecord(opponentPublic.wins, opponentPublic.losses)} recently`;
+    return `${favorite.player.name} ${favoriteAction}. ${opponent.player.name} ${opponentAction}.`;
+  }
+  const favoriteText = `${favorite.player.name} is ${formatRecord(favorite.recent.wins, favorite.recent.losses)} over the last ${favorite.recentMatches.length}`;
+  const opponentText = `${opponent.player.name} is ${formatRecord(opponent.recent.wins, opponent.recent.losses)} over the same window`;
+  if (opponent.recent.winRate >= 70) {
+    return `${favoriteText}. ${opponentText}, so this is not a fade based on form alone.`;
+  }
+  if (opponent.recent.winRate <= 40) {
+    return `${favoriteText}. ${opponent.player.name} is struggling at ${formatRecord(opponent.recent.wins, opponent.recent.losses)} recently.`;
+  }
+  return `${favoriteText}. ${opponentText}.`;
+}
+
+function formatDecidingSetRead(favorite: PlayerProfile, opponent: PlayerProfile) {
+  const favoriteScope = formatMatchLogScope(favorite);
+  const opponentScope = formatMatchLogScope(opponent);
+  if (opponent.decidingSet.streakResult === "L" && opponent.decidingSet.streak >= 3 && favorite.decidingSet.streakResult === "W" && favorite.decidingSet.streak >= 3) {
+    return `${opponent.player.name} has lost ${opponent.decidingSet.streak} straight set-3 matches and has a ${opponent.decidingSet.winRate}% ${opponentScope} set-3 win rate. ${favorite.player.name} has won ${favorite.decidingSet.streak} straight set-3 matches and has a ${favorite.decidingSet.winRate}% ${favoriteScope} set-3 win rate.`;
+  }
+  if (opponent.decidingSet.streakResult === "L" && opponent.decidingSet.streak >= 3) {
+    return `${opponent.player.name} has lost ${opponent.decidingSet.streak} straight set-3 matches and is ${formatRecord(opponent.decidingSet.wins, opponent.decidingSet.losses)} (${opponent.decidingSet.winRate}%) across ${opponentScope} deciding sets.`;
+  }
+  if (favorite.decidingSet.streakResult === "W" && favorite.decidingSet.streak >= 3) {
+    return `${favorite.player.name} has won ${favorite.decidingSet.streak} straight set-3 matches and is ${formatRecord(favorite.decidingSet.wins, favorite.decidingSet.losses)} (${favorite.decidingSet.winRate}%) across ${favoriteScope} deciding sets.`;
+  }
+  if (favorite.seasonDecidingSet.wins > 0 && favorite.seasonDecidingSet.losses === 0) {
+    return `${favorite.player.name} is undefeated this year in deciding-set matches at ${formatRecord(favorite.seasonDecidingSet.wins, favorite.seasonDecidingSet.losses)}.`;
+  }
+  if (opponent.seasonDecidingSet.losses > 0 && opponent.seasonDecidingSet.wins === 0) {
+    return `${opponent.player.name} has not won a deciding-set match this year in the loaded sample (${formatRecord(opponent.seasonDecidingSet.wins, opponent.seasonDecidingSet.losses)}).`;
+  }
+  return `If this goes late, ${favorite.player.name} is ${formatRecord(favorite.decidingSet.wins, favorite.decidingSet.losses)} in deciding sets (${favorite.decidingSet.winRate}%) while ${opponent.player.name} is ${formatRecord(opponent.decidingSet.wins, opponent.decidingSet.losses)} (${opponent.decidingSet.winRate}%).`;
+}
+
+function formatMatchLogScope(profile: PlayerProfile) {
+  const total = profile.player.apiStats?.totalMatches || profile.totalMatches;
+  const loaded = profile.player.apiStats?.matchLogCount || profile.player.matches.length;
+  return loaded >= total ? "career" : `loaded ${loaded}-match`;
+}
+
+function formatSetOneCloseoutRead(favorite: PlayerProfile, opponent: PlayerProfile) {
+  if (!favorite.setOneCloseout.chances) {
+    return "";
+  }
+  const favoriteLine = `When ${favorite.player.name} wins set 1, they win the match ${favorite.setOneCloseout.matchWinRate}% of the time and close 2-0 ${favorite.setOneCloseout.straightSetWinRate}% of the time.`;
+  if (opponent.setOneCloseout.chances) {
+    return `${favoriteLine} ${opponent.player.name}'s set-1 closeout rate is ${opponent.setOneCloseout.matchWinRate}% with a ${opponent.setOneCloseout.straightSetWinRate}% 2-0 close rate.`;
+  }
+  return favoriteLine;
+}
+
+function formatTieBreakRead(favorite: PlayerProfile, opponent: PlayerProfile) {
+  if (favorite.tieBreaks.wins + favorite.tieBreaks.losses === 0 && opponent.tieBreaks.wins + opponent.tieBreaks.losses === 0) {
+    return "";
+  }
+  return `If for whatever reason this gets to a tiebreak, ${favorite.player.name} is ${formatRecord(favorite.tieBreaks.wins, favorite.tieBreaks.losses)} (${favorite.tieBreaks.winRate}%) compared to ${opponent.player.name} at ${formatRecord(opponent.tieBreaks.wins, opponent.tieBreaks.losses)} (${opponent.tieBreaks.winRate}%).`;
+}
+
+function formatPressurePoint(favorite: PlayerProfile, opponent: PlayerProfile) {
+  const setLabels = ["Set 1 Win", "Set 2 Win", "Set 3 Win"];
+  const opponentPublicSets = setLabels
+    .map((label, index) => ({ label, setNumber: index + 1, row: publicCurrentRow(opponent, label) }))
+    .filter((item) => item.row?.percent !== null && item.row?.percent !== undefined);
+  const weakestPublic = [...opponentPublicSets].sort((a, b) => (a.row?.percent ?? 0) - (b.row?.percent ?? 0))[0];
+  if (weakestPublic && (weakestPublic.row?.percent ?? 100) <= 45) {
+    return `${opponent.player.name}'s lowest current-year split is set ${weakestPublic.setNumber} at ${weakestPublic.row?.percent}%. That is the pressure point.`;
+  }
+  if (opponent.weakestSet.winRate <= 45) {
+    return `${opponent.player.name}'s weakest loaded split is set ${opponent.weakestSet.setNumber} at ${opponent.weakestSet.winRate}%, so that is the pressure point.`;
+  }
+  if (favorite.strongestSet.winRate - opponent.weakestSet.winRate >= 12) {
+    return `${favorite.player.name}'s strongest split is set ${favorite.strongestSet.setNumber} at ${favorite.strongestSet.winRate}%, while ${opponent.player.name}'s lowest is set ${opponent.weakestSet.setNumber} at ${opponent.weakestSet.winRate}%.`;
+  }
+  return "There is no massive weak-set flag on the other side, so the edge needs to come from form, price, and closeout profile.";
+}
+
+function formatSurfaceCollapseRead(profile: PlayerProfile, surface = "Hard") {
+  const row = publicCareerSurface(profile, surface);
+  if (!row || row.total < 10 || row.percent > 20) {
+    return "";
+  }
+  return `${profile.player.name} is ${formatRecord(row.wins, row.losses)} career on ${surface.toLowerCase()} (${row.percent}%) across ${row.total} matches. That is not noise anymore.`;
+}
+
+function formatConditionalPlayRead(favorite: PlayerProfile, opponent: PlayerProfile) {
+  const favoriteAtLeastOne = publicCurrentRow(favorite, "Won At Least 1 Set");
+  const opponentSetThree = publicCurrentRow(opponent, "Set 3 Win");
+  const opponentMatchWins = publicCurrentRow(opponent, "Match Wins");
+  const opponentBehind = publicCurrentRow(opponent, "Wins From Behind");
+  const straightSetMerchant = formatStraightSetMerchantRead(favorite, opponent);
+  if ((favoriteAtLeastOne?.percent ?? 0) >= 70 && opponentSetThree?.percent === 0) {
+    return `This reads better as a timing spot than a blind chase: ${favorite.player.name} has taken at least one set in ${favoriteAtLeastOne?.percent}% of matches this year, while ${opponent.player.name} is 0% in current-year set 3. Set 1 only if ${favorite.player.name} shows the first break/momentum; set 3 is where the profile gets loud.`;
+  }
+  if (straightSetMerchant) {
+    return `${straightSetMerchant} If ${favorite.player.name} starts set 1 strong, that is the live trigger. If it gets to set 3, the matchup gets way louder.`;
+  }
+  if ((opponentMatchWins?.percent ?? 100) <= 25 && opponentBehind?.percent === 0 && (favoriteAtLeastOne?.percent ?? 0) >= 65) {
+    return `${opponent.player.name} is only ${opponentMatchWins?.percent}% in current-year match wins and 0% winning from behind, while ${favorite.player.name} takes a set ${favoriteAtLeastOne?.percent}% of the time. Do not force the pre-match price; wait for the match state to confirm it.`;
+  }
+  return "";
+}
+
+function formatLatestThreeSetFatigueRead(profile: PlayerProfile) {
+  const latest = profile.recentMatches[0];
+  if (!latest) {
+    return "";
+  }
+  const sets = parseScoreSets(latest.score);
+  if (sets.length < 3) {
+    return "";
+  }
+  return `${profile.player.name}'s latest loaded match was a three-setter on ${latest.date} (${latest.score}). That is a real fatigue/recovery note if this match is on a short turnaround.`;
+}
+
+function formatEliteSetSpecificRead(profile: PlayerProfile) {
+  const eliteRows = ["Set 1 Win", "Set 2 Win", "Set 3 Win"]
+    .map((label, index) => ({ label, setNumber: index + 1, row: publicCurrentRow(profile, label) }))
+    .filter((item) => item.row?.percent !== null && (item.row?.percent ?? 0) >= 70 && (item.row?.percentile ?? 0) >= 95)
+    .sort((a, b) => (b.row?.percentile ?? 0) - (a.row?.percentile ?? 0) || (b.row?.percent ?? 0) - (a.row?.percent ?? 0));
+  const elite = eliteRows[0];
+  if (!elite) {
+    return "";
+  }
+  return `${profile.player.name}'s set ${elite.setNumber} is the standout split: ${elite.row?.percent}% this year, percentile ${elite.row?.percentile}.`;
+}
+
+function formatStraightSetMerchantRead(favorite: PlayerProfile, opponent: PlayerProfile) {
+  const favoriteSetThree = publicCurrentRow(favorite, "Set 3 Win");
+  const opponentSetThree = publicCurrentRow(opponent, "Set 3 Win");
+  const opponentStraightSets = publicCurrentRow(opponent, "Wins in Straight Sets");
+  if (!favoriteSetThree || !opponentSetThree || !opponentStraightSets) {
+    return "";
+  }
+  const gap = (favoriteSetThree.percent ?? 0) - (opponentSetThree.percent ?? 0);
+  if ((opponentStraightSets.percent ?? 0) >= 50 && opponentStraightSets.percentile >= 90 && (opponentSetThree.percent ?? 100) <= 25 && gap >= 35) {
+    return `${opponent.player.name} has been excellent when it is clean: ${opponentStraightSets.percent}% straight-set wins, percentile ${opponentStraightSets.percentile}. But if the match gets messy, ${favorite.player.name} is ${favoriteSetThree.percent}% in current-year set 3s compared to ${opponent.player.name} at ${opponentSetThree.percent}%.`;
+  }
+  return "";
+}
+
+function buildGlaringStats(favorite: PlayerProfile, opponent: PlayerProfile) {
+  const stats: string[] = [];
+  const straightSets = publicCurrentRow(favorite, "Wins in Straight Sets");
+  const careerStraightSets = publicCareerRow(favorite, "Wins in Straight Sets");
+  const favoriteStraightSets = publicCurrentRow(favorite, "Wins in Straight Sets");
+  const opponentAtLeastOneSet = publicCurrentRow(opponent, "Won At Least 1 Set");
+  if ((favoriteStraightSets?.percent ?? 100) <= 35 && (opponentAtLeastOneSet?.percent ?? 0) >= 65) {
+    stats.push(`${favorite.player.name} is not a clean 2-0 profile: ${favoriteStraightSets?.percent}% current-year straight-set wins while ${opponent.player.name} takes at least one set ${opponentAtLeastOneSet?.percent}% of the time.`);
+  }
+  const opponentCareerWins = publicCareerRow(opponent, "Match Wins");
+  const opponentCareerSetThree = publicCareerRow(opponent, "Set 3 Win");
+  const opponentCurrentSetThree = publicCurrentRow(opponent, "Set 3 Win");
+  const opponentBehind = publicCurrentRow(opponent, "Wins From Behind");
+  const opponentSurfaceCollapse = formatSurfaceCollapseRead(opponent, "Hard");
+  const straightSetMerchant = formatStraightSetMerchantRead(favorite, opponent);
+  const eliteSet = formatEliteSetSpecificRead(favorite);
+  if (opponentCareerWins?.percent !== null && (opponentCareerWins?.percent ?? 100) <= 15) {
+    stats.push(`${opponent.player.name} has a ${opponentCareerWins?.percent}% career match win rate${opponentCareerWins?.number ? ` (${opponentCareerWins.number})` : ""}. That is the whole warning label.`);
+  }
+  if (eliteSet) {
+    stats.push(eliteSet);
+  }
+  if (opponentSurfaceCollapse) {
+    stats.push(opponentSurfaceCollapse);
+  }
+  if (opponentCurrentSetThree?.percent === 0) {
+    stats.push(`${opponent.player.name} is 0% in current-year set-3 wins. If this gets extended, the profile does not travel.`);
+  } else if (opponentCareerSetThree?.percent === 0) {
+    stats.push(`${opponent.player.name} has a 0% career set-3 win rate${opponentCareerSetThree?.number ? ` (${opponentCareerSetThree.number})` : ""}.`);
+  }
+  if (opponentBehind?.percent === 0) {
+    stats.push(`${opponent.player.name} is 0% current-year winning from behind. Losing set 1 is basically the danger zone.`);
+  }
+  if (straightSetMerchant) {
+    stats.push(straightSetMerchant);
+  }
+  const weakRows = ["Match Wins", "Match Wins (3 Sets)", "Wins in Straight Sets", "Wins From Behind", "Won At Least 1 Set", "Set 1 Win", "Set 2 Win", "Set 3 Win"]
+    .map((label) => ({ label, row: publicCurrentRow(opponent, label) }))
+    .filter((item) => (item.row?.percentile ?? 100) > 0 && (item.row?.percentile ?? 100) <= 35 && item.row?.percent !== null && (item.row?.percent ?? 100) <= 45);
+  if (weakRows.length >= 5) {
+    stats.push(`${opponent.player.name} is bottom-tier across ${weakRows.length} current-year categories: ${weakRows.slice(0, 3).map((item) => `${item.label} ${item.row?.percent}%`).join(", ")}.`);
+  }
+  for (const label of ["Match Wins", "Wins in Straight Sets", "Wins From Behind", "Won At Least 1 Set", "Set 1 Win", "Set 2 Win", "Set 3 Win"]) {
+    const row = publicCurrentRow(opponent, label);
+    if ((row?.percentile ?? 100) > 0 && (row?.percentile ?? 100) <= 35 && (row?.percent ?? 100) <= 45) {
+      stats.push(`${opponent.player.name} is bottom ${row?.percentile}% current-year in ${label.toLowerCase()} at ${row?.percent}%.`);
+      break;
+    }
+  }
+  const favoritePublicProfile = publicBioProfile(favorite);
+  if (favoritePublicProfile.serveSpeed && (favoritePublicProfile.serveSpeedPercentile ?? 0) >= 99) {
+    stats.push(`${favorite.player.name}'s 2026 serve speed is ${favoritePublicProfile.serveSpeed}, percentile ${favoritePublicProfile.serveSpeedPercentile}.`);
+  }
+  if ((straightSets?.percent ?? 0) >= 45 && straightSets?.percentile && straightSets.percentile >= 90) {
+    stats.push(`${favorite.player.name} is top ${Math.max(1, 100 - straightSets.percentile)}% in current-year straight-set wins at ${straightSets.percent}%${careerStraightSets?.number ? `, with ${careerStraightSets.number} career straight-set wins` : ""}.`);
+  }
+  if (favorite.seasonDecidingSet.wins >= 2 && favorite.seasonDecidingSet.losses === 0) {
+    stats.push(`${favorite.player.name.toUpperCase()} is undefeated in deciding sets this year: ${formatRecord(favorite.seasonDecidingSet.wins, favorite.seasonDecidingSet.losses)}.`);
+  }
+  if (opponent.decidingSet.streakResult === "L" && opponent.decidingSet.streak >= 4) {
+    stats.push(`${opponent.player.name.toUpperCase()} has lost ${opponent.decidingSet.streak} straight deciding-set matches.`);
+  }
+  if (favorite.decidingSet.streakResult === "W" && favorite.decidingSet.streak >= 4) {
+    stats.push(`${favorite.player.name.toUpperCase()} has won ${favorite.decidingSet.streak} straight deciding-set matches.`);
+  }
+  if (favorite.setOneCloseout.chances >= 5 && favorite.setOneCloseout.straightSetWinRate >= 75) {
+    stats.push(`Set 1 matters: ${favorite.player.name} closes 2-0 in ${favorite.setOneCloseout.straightSetWinRate}% of loaded matches after taking the opener.`);
+  }
+  if (opponent.weakestSet.losses >= 5 && opponent.weakestSet.winRate <= 40) {
+    stats.push(`${opponent.player.name.toUpperCase()} has a glaring set ${opponent.weakestSet.setNumber} problem at ${opponent.weakestSet.winRate}%.`);
+  }
+  return stats.slice(0, 3);
 }
 
 function App() {
@@ -513,6 +1041,7 @@ function App() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [isFetchingPlayer, setIsFetchingPlayer] = React.useState(false);
+  const [isAnalyzing, setIsAnalyzing] = React.useState(false);
 
   React.useEffect(() => {
     tennisApi.getStatus().then(setStatus).catch(() => setError("Could not load app status."));
@@ -522,6 +1051,7 @@ function App() {
   const loadComparison = React.useCallback(() => {
     if (!availablePlayers.length) return;
     setIsLoading(true);
+    setIsAnalyzing(false);
     setError(null);
     setAnalysis(null);
     tennisApi
@@ -529,11 +1059,16 @@ function App() {
       .then((nextComparison) => {
         setComparison(nextComparison);
         setIsLoading(false);
+        setIsAnalyzing(true);
         return tennisApi.analyze(nextComparison.first, nextComparison.second, nextComparison.headToHead);
       })
-      .then(setAnalysis)
+      .then((nextAnalysis) => {
+        setAnalysis(nextAnalysis);
+        setIsAnalyzing(false);
+      })
       .catch(() => {
         setIsLoading(false);
+        setIsAnalyzing(false);
         setError("Could not refresh this matchup.");
       });
   }, [availablePlayers, playerAId, playerBId]);
@@ -562,7 +1097,7 @@ function App() {
       if (side === "a") setPlayerAId(player.id);
       else setPlayerBId(player.id);
     } catch {
-      setError(`Could not fetch ${result.name} from Tennis Abstract.`);
+      setError(`Could not fetch ${result.name} from Rapid Tennis API.`);
     } finally {
       setIsFetchingPlayer(false);
     }
@@ -596,7 +1131,7 @@ function App() {
         </div>
       </section>
 
-      <StatusStrip status={status} onRefresh={loadComparison} isLoading={isLoading || isFetchingPlayer} />
+      <StatusStrip status={status} onRefresh={loadComparison} isLoading={isLoading || isFetchingPlayer || isAnalyzing} />
       {error && <ErrorBanner message={error} onRetry={loadComparison} />}
 
       {comparison && (
@@ -614,13 +1149,26 @@ function App() {
             <MatchHistory player={comparison.second} />
           </section>
 
-          <section className="insight-grid" aria-label="Analysis and sources">
-            {analysis && <AnalysisPanel analysis={analysis} />}
-            <SourcesPanel sources={dataSources} />
+          <section className="insight-grid" aria-label="Analysis">
+            {analysis ? <AnalysisPanel analysis={analysis} /> : <DeepLookupPanel isFetchingPlayer={isFetchingPlayer} />}
           </section>
         </div>
       )}
     </main>
+  );
+}
+
+function DeepLookupPanel({ isFetchingPlayer }: { isFetchingPlayer: boolean }) {
+  return (
+    <section className="panel lookup-panel" aria-live="polite">
+      <div className="lookup-spinner" aria-hidden="true">
+        <LoaderCircle size={18} />
+      </div>
+      <div>
+        <strong>{isFetchingPlayer ? "Fetching player profile" : "Building matchup read"}</strong>
+        <span>{isFetchingPlayer ? "Pulling Rapid stats and match logs." : "Checking set splits, recent form, public context, and pressure stats."}</span>
+      </div>
+    </section>
   );
 }
 
@@ -768,7 +1316,7 @@ function PlayerSearch({
               ))
             ) : (
               <div className="search-empty">
-                <strong>{isSearching ? "Searching Tennis Abstract" : "No player found"}</strong>
+                <strong>{isSearching ? "Searching Rapid Tennis API" : "No player found"}</strong>
                 <small>Try a full name like Novak Djokovic, Coco Gauff, Rafael Nadal, or Serena Williams.</small>
               </div>
             )}
@@ -1018,6 +1566,11 @@ function AnalysisPanel({ analysis }: { analysis: Analysis }) {
         <Bot size={18} />
       </div>
       <p className="analysis-headline">{analysis.headline}</p>
+      <div className="pick-strip">
+        <span>{analysis.conviction}</span>
+        <strong>{analysis.pick}</strong>
+      </div>
+      <p className="analysis-narrative">{analysis.narrative}</p>
       <div className="analysis-meta">
         <span>
           <Gauge size={14} />
@@ -1030,9 +1583,10 @@ function AnalysisPanel({ analysis }: { analysis: Analysis }) {
       </div>
       <div className="analysis-columns">
         <InsightList title="Edges" items={analysis.edges} />
-        <InsightList title="Risks" items={analysis.risks} />
+        <InsightList title="Red flags" items={analysis.redFlags} />
         <InsightList title="Watch" items={analysis.focus} />
       </div>
+      <InsightList title="Risk check" items={analysis.risks} />
     </section>
   );
 }
@@ -1047,32 +1601,6 @@ function InsightList({ title, items }: { title: string; items: string[] }) {
         ))}
       </ul>
     </div>
-  );
-}
-
-function SourcesPanel({ sources }: { sources: DataSource[] }) {
-  return (
-    <section className="panel sources-panel">
-      <div className="panel-heading">
-        <div>
-          <p className="eyebrow">Fetch plan</p>
-          <h3>Sources</h3>
-        </div>
-        <Database size={18} />
-      </div>
-      <div className="source-list">
-        {sources.map((source) => (
-          <a className="source-card" href={source.url} target="_blank" rel="noreferrer" key={source.name}>
-            <div>
-              <strong>{source.name}</strong>
-              <span>{source.covers.join(" - ")}</span>
-            </div>
-            <ExternalLink size={16} />
-            <small>{source.note}</small>
-          </a>
-        ))}
-      </div>
-    </section>
   );
 }
 
