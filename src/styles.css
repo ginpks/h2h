@@ -454,6 +454,7 @@ button {
   color: var(--number);
   font-size: clamp(1.42rem, 3.5vw, 2.35rem);
   font-weight: 760;
+  font-variant-numeric: tabular-nums;
 }
 
 .surface-score > span {
@@ -479,11 +480,13 @@ button {
 }
 
 .positive {
-  color: var(--win);
+  color: #83d79a;
+  text-shadow: 0 0 18px rgba(111, 209, 138, 0.08);
 }
 
 .negative {
-  color: var(--loss);
+  color: #ec817a;
+  text-shadow: 0 0 18px rgba(224, 107, 99, 0.08);
 }
 
 .neutral {
@@ -508,18 +511,22 @@ button {
 
 .detail-card {
   display: grid;
-  grid-template-columns: minmax(90px, 1.15fr) repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  min-height: 62px;
-  padding: 8px;
+  grid-template-columns: minmax(112px, 1fr) repeat(4, minmax(64px, 0.72fr));
+  gap: 0;
+  min-height: 58px;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   align-items: stretch;
+  overflow: hidden;
 }
 
 .detail-card h2 {
   margin: 0;
-  align-self: center;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 10px;
   color: var(--text);
   font-size: clamp(0.92rem, 1.7vw, 1.12rem);
   line-height: 1.08;
@@ -527,18 +534,21 @@ button {
 
 .detail-card div {
   display: grid;
+  align-content: center;
   gap: 1px;
   min-width: 0;
-  padding: 6px 7px;
-  border-radius: 6px;
+  padding: 7px 8px;
+  border-radius: 0;
   background: transparent;
   border-left: 1px solid var(--line);
+  text-align: left;
 }
 
 .detail-card span {
   color: var(--muted);
   font-size: 0.58rem;
   font-weight: 820;
+  line-height: 1;
   text-transform: uppercase;
 }
 
@@ -546,10 +556,12 @@ button {
   min-width: 0;
   color: var(--soft);
   font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
 }
 
 .align-right {
-  text-align: right;
+  text-align: left;
 }
 
 .provider-badge {
@@ -594,7 +606,7 @@ button {
   display: grid;
   gap: 0;
   border-top: 1px solid var(--line);
-  background: rgba(7, 9, 11, 0.52);
+  background: transparent;
 }
 
 .chat-heading {
@@ -602,8 +614,8 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+  border-bottom: 0;
 }
 
 .chat-heading span {
@@ -622,28 +634,43 @@ button {
 
 .chat-log {
   display: grid;
-  gap: 10px;
-  max-height: 320px;
+  gap: 8px;
+  max-height: 300px;
   overflow: auto;
-  padding: 14px 0;
+  padding: 8px 2px 12px 0;
+  scrollbar-color: rgba(229, 233, 238, 0.18) transparent;
+  scrollbar-width: thin;
+}
+
+.chat-log::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-log::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-log::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(229, 233, 238, 0.18);
 }
 
 .chat-message {
   width: fit-content;
   max-width: min(760px, 86%);
-  padding: 10px 13px;
+  padding: 9px 12px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 13px;
   white-space: pre-line;
   line-height: 1.42;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 520;
 }
 
 .chat-message.assistant {
   justify-self: start;
-  border-color: rgba(229, 233, 238, 0.13);
-  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(229, 233, 238, 0.11);
+  background: transparent;
   color: var(--soft);
   border-bottom-left-radius: 5px;
 }
@@ -651,7 +678,7 @@ button {
 .chat-message.user {
   justify-self: end;
   border-color: rgba(190, 200, 210, 0.28);
-  background: rgba(120, 132, 145, 0.18);
+  background: rgba(120, 132, 145, 0.12);
   color: var(--text);
   border-bottom-right-radius: 5px;
 }
@@ -660,8 +687,8 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 40px;
   gap: 7px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  border-top: 0;
 }
 
 .chat-form input {
@@ -671,7 +698,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 999px;
   outline: 0;
-  background: rgba(7, 10, 8, 0.52);
+  background: transparent;
   color: var(--text);
   font-weight: 650;
 }
@@ -754,7 +781,15 @@ button {
   }
 
   .detail-card {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .detail-card h2 {
+    grid-column: 1 / -1;
+  }
+
+  .detail-card div:nth-of-type(odd) {
+    border-left: 0;
   }
 
   .surface-score {
