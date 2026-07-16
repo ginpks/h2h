@@ -18,6 +18,11 @@ const rapidMatchMaxPages = Number(process.env.RAPID_TENNIS_MATCH_MAX_PAGES || 6)
 const tennisStatsFetchEnabled = process.env.TENNISSTATS_ENABLE_FETCH === "1";
 const tennisStatsSearchEnabled = tennisStatsFetchEnabled || process.env.TENNISSTATS_ENABLE_SEARCH === "1";
 const fallbackSearchEnabled = process.env.SEARCH_FALLBACK_ENABLE !== "0";
+let tennisAbstractPlayerListCache = { fetchedAt: 0, players: [] };
+const verifiedPublicSearchPlayers = [
+  { id: "tennisabstract:m:izan-almazan-valiente", name: "Izan Almazan Valiente", country: "ESP", ranking: 585, tour: "M", source: "Tennis Abstract" },
+  { id: "tennisabstract:m:dominik-palan", name: "Dominik Palan", country: "CZE", ranking: 498, tour: "M", source: "Tennis Abstract" },
+];
 const bundledSearchPlayers = [
   { id: "sample-M:Jannik Sinner", name: "Jannik Sinner", country: "ITA", ranking: 1, tour: "M", source: "Demo dataset" },
   { id: "sample-M:Carlos Alcaraz", name: "Carlos Alcaraz", country: "ESP", ranking: 2, tour: "M", source: "Demo dataset" },
@@ -340,6 +345,7 @@ async function searchPlayers(query) {
 
 async function searchFallbackPlayers(query) {
   const results = [];
+  results.push(...searchVerifiedPublicPlayers(query));
 
   if (tennisStatsSearchEnabled) {
     try {
@@ -347,6 +353,12 @@ async function searchFallbackPlayers(query) {
     } catch (error) {
       console.warn("TennisStats search fallback failed:", error instanceof Error ? error.message : error);
     }
+  }
+
+  try {
+    results.push(...(await searchTennisAbstractPlayers(query)));
+  } catch (error) {
+    console.warn("TennisAbstract player-list fallback failed:", error instanceof Error ? error.message : error);
   }
 
   try {
@@ -363,6 +375,16 @@ async function searchFallbackPlayers(query) {
 
   results.push(...searchBundledPlayers(query));
   return dedupeSearchResults(results).slice(0, 12);
+}
+
+function searchVerifiedPublicPlayers(query) {
+  const normalized = normalizePlayerName(query);
+  const tokens = normalized.split(" ").filter((token) => token.length > 1);
+  if (!tokens.length) return [];
+  return verifiedPublicSearchPlayers.filter((player) => {
+    const haystack = normalizePlayerName(`${player.name} ${player.country}`);
+    return tokens.every((token) => haystack.includes(token));
+  });
 }
 
 async function searchTennisStatsPlayers(query) {
@@ -389,6 +411,55 @@ async function searchTennisStatsPlayers(query) {
       };
     })
     .filter((player) => player.name && normalizePlayerName(player.name).includes(normalizePlayerName(query)));
+}
+
+async function searchTennisAbstractPlayers(query) {
+  const normalized = normalizePlayerName(query);
+  const tokens = normalized.split(" ").filter((token) => token.length > 1);
+  if (!tokens.length) return [];
+
+  const players = await getTennisAbstractPlayerList();
+  return players
+    .filter((player) => {
+      const haystack = normalizePlayerName(player.name);
+      return tokens.every((token) => haystack.includes(token));
+    })
+    .slice(0, 20)
+    .map((player) => ({
+      id: `tennisabstract:${player.tour.toLowerCase()}:${slugifyTennisStatsPlayerName(player.name)}`,
+      name: player.name,
+      country: "",
+      ranking: 0,
+      tour: player.tour,
+      source: "Tennis Abstract",
+    }));
+}
+
+async function getTennisAbstractPlayerList() {
+  const now = Date.now();
+  if (tennisAbstractPlayerListCache.players.length && now - tennisAbstractPlayerListCache.fetchedAt < 6 * 60 * 60 * 1000) {
+    return tennisAbstractPlayerListCache.players;
+  }
+
+  const response = await fetch("https://www.tennisabstract.com/mwplayerlist.js", { headers: tennisAbstractHeaders() });
+  if (!response.ok) {
+    throw new Error(`TennisAbstract player list returned ${response.status}`);
+  }
+  const source = await response.text();
+  const match = source.match(/var\s+playerlist\s*=\s*(\[[\s\S]*?\]);?/);
+  if (!match) {
+    throw new Error("TennisAbstract player list was not parseable");
+  }
+  const entries = JSON.parse(match[1]);
+  const players = asArray(entries)
+    .map((entry) => {
+      const parsed = String(entry || "").match(/^\(([MW])\)\s+(.+)$/);
+      if (!parsed) return null;
+      return { tour: parsed[1], name: parsed[2].trim() };
+    })
+    .filter(Boolean);
+  tennisAbstractPlayerListCache = { fetchedAt: now, players };
+  return players;
 }
 
 async function searchDuckDuckGoTennisPlayers(query) {
