@@ -322,7 +322,12 @@ async function searchPlayers(query) {
   }
 
   try {
-    return await searchRapidPlayers(normalized);
+    const rapidResults = await searchRapidPlayers(normalized);
+    if (rapidResults.length || !fallbackSearchEnabled) {
+      return rapidResults;
+    }
+    console.warn(`Rapid Tennis search returned no players for "${normalized}"; trying fallback search providers.`);
+    return searchFallbackPlayers(normalized);
   } catch (error) {
     if (!fallbackSearchEnabled) {
       throw error;
@@ -342,6 +347,12 @@ async function searchFallbackPlayers(query) {
     } catch (error) {
       console.warn("TennisStats search fallback failed:", error instanceof Error ? error.message : error);
     }
+  }
+
+  try {
+    results.push(...(await searchDuckDuckGoTennisPlayers(query)));
+  } catch (error) {
+    console.warn("DuckDuckGo tennis search fallback failed:", error instanceof Error ? error.message : error);
   }
 
   try {
@@ -378,6 +389,39 @@ async function searchTennisStatsPlayers(query) {
       };
     })
     .filter((player) => player.name && normalizePlayerName(player.name).includes(normalizePlayerName(query)));
+}
+
+async function searchDuckDuckGoTennisPlayers(query) {
+  const url = `https://duckduckgo.com/html/?q=${encodeURIComponent(`${query} tennis player`)}`;
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`DuckDuckGo returned ${response.status}`);
+  }
+
+  const html = await response.text();
+  const matches = [...html.matchAll(/<a[^>]+class=["'][^"']*result__a[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
+  return matches
+    .map((match) => {
+      const sourceUrl = decodeDuckDuckGoResultUrl(match[1]);
+      const title = stripHtml(match[2]);
+      const name = playerNameFromSearchResult(title, sourceUrl, query);
+      if (!name) return null;
+      return {
+        id: `public:${slugifyTennisStatsPlayerName(name)}`,
+        name,
+        country: "",
+        ranking: 0,
+        tour: inferTourFromPublicPlayerUrl(sourceUrl),
+        source: publicSearchSourceName(sourceUrl),
+      };
+    })
+    .filter(Boolean);
 }
 
 async function searchWikidataTennisPlayers(query) {
@@ -421,6 +465,68 @@ function dedupeSearchResults(results) {
     seen.add(key);
     return true;
   });
+}
+
+function decodeDuckDuckGoResultUrl(value) {
+  const href = decodeHtmlEntities(value || "");
+  try {
+    const url = new URL(href.startsWith("//") ? `https:${href}` : href);
+    return url.searchParams.get("uddg") ? decodeURIComponent(url.searchParams.get("uddg") || "") : url.href;
+  } catch {
+    return href;
+  }
+}
+
+function stripHtml(value) {
+  return decodeHtmlEntities(String(value || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+}
+
+function playerNameFromSearchResult(title, sourceUrl, query) {
+  const url = String(sourceUrl || "").toLowerCase();
+  const trustedPlayerUrl = [
+    "atptour.com/",
+    "wtatennis.com/",
+    "itftennis.com/en/players/",
+    "sofascore.com/tennis/player/",
+    "flashscore.com/player/",
+    "flashscoreusa.com/player/",
+    "tennisexplorer.com/player/",
+    "tennisabstract.com/cgi-bin/player.cgi",
+  ].some((domain) => url.includes(domain));
+  if (!trustedPlayerUrl) return "";
+
+  const cleaned = stripHtml(title)
+    .replace(/^tennis:\s*/i, "")
+    .replace(/\s+\|\s+.*$/i, "")
+    .replace(/\s+-\s+(ATP Tour|WTA Tennis|ITF|Tennis Explorer|Sofascore|Flashscore|Tennis Abstract).*$/i, "")
+    .replace(/\s+(live score.*|scores.*|stats.*|player profile.*|overview.*|tennis player profile.*|tennis)$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned || /\b(vs\.?|versus|prediction|fixtures?|results?)\b/i.test(cleaned)) return "";
+  const queryTokens = normalizePlayerName(query).split(" ").filter((token) => token.length > 1);
+  const normalizedCleaned = normalizePlayerName(cleaned);
+  if (!queryTokens.every((token) => normalizedCleaned.includes(token))) return "";
+  return cleaned;
+}
+
+function inferTourFromPublicPlayerUrl(sourceUrl) {
+  const url = String(sourceUrl || "").toLowerCase();
+  if (url.includes("wtatennis.com") || /\/wta|\/wt\//.test(url)) return "W";
+  if (url.includes("atptour.com") || /\/atp|\/mt\//.test(url)) return "M";
+  return undefined;
+}
+
+function publicSearchSourceName(sourceUrl) {
+  const url = String(sourceUrl || "").toLowerCase();
+  if (url.includes("atptour.com")) return "ATP Tour";
+  if (url.includes("wtatennis.com")) return "WTA";
+  if (url.includes("itftennis.com")) return "ITF";
+  if (url.includes("sofascore.com")) return "Sofascore";
+  if (url.includes("flashscore")) return "Flashscore";
+  if (url.includes("tennisexplorer.com")) return "Tennis Explorer";
+  if (url.includes("tennisabstract.com")) return "Tennis Abstract";
+  return "Public tennis search";
 }
 
 async function fetchRapidPlayerProfile(name, tour = "M") {
