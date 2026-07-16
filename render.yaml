@@ -32,7 +32,7 @@ services:
       - key: RAPID_TENNIS_MATCH_MAX_PAGES
         value: "6"
       - key: OPENAI_MODEL
-        value: gpt-5.5
+        value: gpt-5-mini
       - key: OPENAI_ENABLE_WEB_SEARCH
         value: "0"
       - key: RAPID_TENNIS_API_KEY

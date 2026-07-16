@@ -52,7 +52,7 @@ npm start
 Optional:
 
 ```bash
-set OPENAI_MODEL=gpt-5.5
+set OPENAI_MODEL=gpt-5-mini
 set OPENAI_ENABLE_WEB_SEARCH=1
 ```
 

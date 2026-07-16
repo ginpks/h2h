@@ -18,6 +18,7 @@ const rapidMatchMaxPages = Number(process.env.RAPID_TENNIS_MATCH_MAX_PAGES || 6)
 const tennisStatsFetchEnabled = process.env.TENNISSTATS_ENABLE_FETCH === "1";
 const tennisStatsSearchEnabled = tennisStatsFetchEnabled || process.env.TENNISSTATS_ENABLE_SEARCH === "1";
 const fallbackSearchEnabled = process.env.SEARCH_FALLBACK_ENABLE !== "0";
+const openAiModel = process.env.OPENAI_MODEL || "gpt-5-mini";
 let tennisAbstractPlayerListCache = { fetchedAt: 0, players: [] };
 const verifiedPublicSearchPlayers = [
   { id: "tennisabstract:m:izan-almazan-valiente", name: "Izan Almazan Valiente", country: "ESP", ranking: 585, tour: "M", source: "Tennis Abstract" },
@@ -66,7 +67,7 @@ createServer(async (request, response) => {
           {
             name: "OpenAI",
             status: process.env.OPENAI_API_KEY ? "ready" : "planned",
-            detail: process.env.OPENAI_API_KEY ? "Responses API analysis is enabled" : "Set OPENAI_API_KEY to enable model analysis",
+            detail: process.env.OPENAI_API_KEY ? `Responses API analysis is enabled with ${openAiModel}` : "Set OPENAI_API_KEY to enable model analysis",
           },
           {
             name: "Live tennis providers",
@@ -1284,7 +1285,7 @@ function slugifyPlayerName(name) {
 async function createOpenAiAnalysis(payload) {
   const enrichedPayload = enrichAnalysisPayload(payload);
   if (!process.env.OPENAI_API_KEY) {
-    return localAnalysis(enrichedPayload, "OpenAI endpoint ready - set OPENAI_API_KEY to enable model analysis");
+    return unavailableAiAnalysis(enrichedPayload, "OpenAI API key is not configured");
   }
 
   const apiResponse = await fetch("https://api.openai.com/v1/responses", {
@@ -1294,12 +1295,12 @@ async function createOpenAiAnalysis(payload) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || "gpt-5.5",
+      model: openAiModel,
       input: [
         {
           role: "system",
           content:
-            "You are a sharp tennis analyst for pre-match and live reads. Use the computed Rapid API stat pack as the structured backbone. Use attached TennisStats publicStats for public percentile, career-count, surface-record, recent-form, age, handedness, serve-speed, and match/set split claims when present. If web search is enabled and a useful public tennis stat is missing, you may verify TennisStats/player/H2H pages or official pages for those exact public rows; keep Rapid as the primary match-log source and do not invent anything. You may also use web search for public context such as school, college roster, injuries, recovery, inactivity, nationality, handedness, age, college roster/accolades, or biographical facts, only if verified from a credible public page. Be direct and easy to read. Do not twist strong records into negatives: 8-2 is good, not 'lost 2 of 10.' Emphasize genuinely glaring edges like first match after long inactivity, very weak career win rate, terrible surface record with sample size, zero or terrible deciding-set record, zero wins from behind, sparse-data pricing risk, undefeated deciding-set records, elite set-specific percentile, weak set-specific win rates, high set-1 closeout rates, highest set win rate, straight-set percentile, straight-set merchant with poor deciding-set record, opponent played a three-setter in their latest loaded match, age/recovery gap, serve-speed percentile, and tiebreak gaps. When the edge is better as a live condition than a pre-match ML, say that plainly: set-1 play if the stronger profile breaks/gets momentum, set-2 play if that is the elite set-specific edge, set-3 play if the opponent has a 0% deciding-set split or is a straight-set merchant with a terrible set-3 split, or hold if price/timing is not there. Handedness must be verified; if sources conflict or the field is blank, say it is unverified instead of calling someone left- or right-handed. The narrative can be a favorite lean OR a favorite-fade/value-underdog read. It should sound like a fast betting note: market misprice or favorite lean, strongest stats, opponent weakness only if truly weak, set/closeout/tiebreak implication, optional verified college/injury/age/handedness note, final lean. Cite concrete numbers and never invent facts. Return valid JSON with headline, pick, conviction, narrative, generatedBy, confidence, edges, redFlags, risks, and focus.",
+            "You are a sharp tennis matchup analyst. Generate a fresh, non-template betting-style note from only the supplied player objects and computed statPack. Do not use canned phrases like 'is the lean here' or repeat zero stats unless the statPack truly has zero loaded matches. Highlight advantages and disadvantages for both players: recent form, season record, surface splits, set-specific edges, deciding sets, tiebreaks, closeout profile, age/ranking/context, and H2H if present. If the data is thin, say exactly what is thin and avoid a forced pick. If one side has the cleaner profile, give a lean plus the best timing angle such as pre-match, set 1, set 2, set 3, or pass/live only. Use concise paragraphs and concrete numbers. Do not invent injuries, odds, handedness, news, or external facts. Return valid JSON with headline, pick, conviction, narrative, generatedBy, confidence, edges, redFlags, risks, and focus.",
         },
         {
           role: "user",
@@ -1335,23 +1336,26 @@ async function createOpenAiAnalysis(payload) {
   });
 
   if (!apiResponse.ok) {
-    return localAnalysis(enrichedPayload, "OpenAI request failed - showing local analysis");
+    const detail = await safeResponseText(apiResponse);
+    return unavailableAiAnalysis(enrichedPayload, `OpenAI request failed (${apiResponse.status})${detail ? `: ${detail}` : ""}`);
   }
 
   const data = await apiResponse.json();
   const text = data.output_text || data.output?.flatMap((item) => item.content || []).find((item) => item.type === "output_text")?.text;
   if (!text) {
-    return localAnalysis(enrichedPayload, "OpenAI response had no text - showing local analysis");
+    return unavailableAiAnalysis(enrichedPayload, "OpenAI response had no text");
   }
 
-  return { ...JSON.parse(text), generatedBy: `OpenAI Responses API (${process.env.OPENAI_MODEL || "gpt-5.5"})` };
+  return { ...JSON.parse(text), generatedBy: `OpenAI Responses API (${openAiModel})` };
 }
 
 async function createOpenAiChatReply(payload) {
   const enrichedPayload = enrichAnalysisPayload(payload);
-  const fallbackReply = localChatReply(enrichedPayload);
   if (!process.env.OPENAI_API_KEY) {
-    return { reply: fallbackReply, generatedBy: "Local fallback" };
+    return {
+      reply: "OpenAI chat is not configured on this deployment yet. The loaded player stats are available, but I am not going to fake a GPT reply from a local script.",
+      generatedBy: "OpenAI unavailable",
+    };
   }
 
   const history = asArray(payload.messages)
@@ -1368,7 +1372,7 @@ async function createOpenAiChatReply(payload) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || "gpt-5.5",
+      model: openAiModel,
       input: [
         {
           role: "system",
@@ -1392,12 +1396,65 @@ async function createOpenAiChatReply(payload) {
   });
 
   if (!apiResponse.ok) {
-    return { reply: fallbackReply, generatedBy: "Local fallback" };
+    return {
+      reply: "OpenAI chat could not be reached for this request. The player data is loaded, but the AI response failed, so no scripted substitute is shown.",
+      generatedBy: "OpenAI unavailable",
+    };
   }
 
   const data = await apiResponse.json();
   const reply = data.output_text || data.output?.flatMap((item) => item.content || []).find((item) => item.type === "output_text")?.text;
-  return { reply: reply || fallbackReply, generatedBy: reply ? `OpenAI Responses API (${process.env.OPENAI_MODEL || "gpt-5.5"})` : "Local fallback" };
+  return {
+    reply: reply || "OpenAI returned an empty chat response. Try asking again in a moment.",
+    generatedBy: reply ? `OpenAI Responses API (${openAiModel})` : "OpenAI unavailable",
+  };
+}
+
+async function safeResponseText(response) {
+  try {
+    return (await response.text()).slice(0, 260);
+  } catch {
+    return "";
+  }
+}
+
+function unavailableAiAnalysis(payload, reason) {
+  const firstProfile = buildPlayerProfile(payload.first);
+  const secondProfile = buildPlayerProfile(payload.second);
+  const firstSummary = compactProfileSummary(firstProfile);
+  const secondSummary = compactProfileSummary(secondProfile);
+  return {
+    headline: "OpenAI analysis unavailable",
+    pick: "No AI pick generated",
+    conviction: "Unavailable",
+    narrative: `OpenAI did not generate this matchup note: ${reason}. Loaded stats are present for ${payload.first.name} (${firstSummary}) and ${payload.second.name} (${secondSummary}), but the app is not showing a scripted recommendation in place of GPT.`,
+    generatedBy: "OpenAI unavailable",
+    confidence: "No model output",
+    edges: [
+      `${payload.first.name}: ${firstSummary}`,
+      `${payload.second.name}: ${secondSummary}`,
+      payload.headToHead ? `Loaded H2H: ${payload.first.name} ${payload.headToHead.winsA}-${payload.headToHead.winsB} ${payload.second.name}.` : "No loaded H2H for this matchup.",
+    ],
+    redFlags: [
+      "OpenAI did not return a generated analysis.",
+      "Do not use the old zero-stat scripted text as a betting read.",
+    ],
+    risks: [
+      "Check Render environment variables: OPENAI_API_KEY must be set.",
+      `Configured model: ${openAiModel}.`,
+    ],
+    focus: [
+      "Once OpenAI is configured, the model will use the loaded statPack to compare advantages and disadvantages.",
+      "The player profile data can still power the scoreboard while AI is unavailable.",
+    ],
+  };
+}
+
+function compactProfileSummary(profile) {
+  const season = publicSeasonRecord(profile);
+  const recent = profile.recent;
+  const bestSurfaceRecord = profile.bestSurfaceRecord || { surface: "unknown", wins: 0, losses: 0 };
+  return `${formatRecord(recent.wins, recent.losses)} last ${profile.recentMatches.length}, ${formatRecord(season.wins, season.losses)} season, ${formatRecord(profile.decidingSet.wins, profile.decidingSet.losses)} deciding sets, ${bestSurfaceRecord.surface} ${formatRecord(bestSurfaceRecord.wins, bestSurfaceRecord.losses)}`;
 }
 
 function localChatReply(payload) {
@@ -1421,7 +1478,7 @@ function enrichAnalysisPayload(payload) {
     statPack: {
       first: summarizeProfileForPrompt(firstProfile),
       second: summarizeProfileForPrompt(secondProfile),
-      generatedFrom: "Rapid Tennis API normalized match logs plus deterministic local calculations",
+      generatedFrom: "Loaded player profiles from Rapid Tennis when available, public TennisAbstract/TennisStats fallbacks when Rapid is unavailable, plus deterministic stat calculations",
     },
   };
 }

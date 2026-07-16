@@ -379,7 +379,7 @@ const tennisApi = {
     }
 
     await new Promise((resolve) => window.setTimeout(resolve, 380));
-    return buildAnalysis(first, second, headToHead);
+    return buildUnavailableAnalysis(first, second, headToHead, "The hosted AI analysis endpoint is unavailable");
   },
   async chat(payload: { first: Player; second: Player; headToHead: HeadToHead | null; analysis: Analysis | null; messages: ChatMessage[]; question: string }) {
     try {
@@ -395,10 +395,9 @@ const tennisApi = {
       // Keep the chat box usable in local/static fallback mode.
     }
 
-    const lean = payload.analysis?.pick ? `Current lean: ${payload.analysis.pick}. ` : "";
     return {
-      reply: `${lean}I can answer from the loaded matchup, but the OpenAI chat endpoint is not available right now. Key local points: ${payload.analysis?.edges?.slice(0, 2).join(" ") || "load both player profiles first."}`,
-      generatedBy: "Local fallback",
+      reply: "The OpenAI chat endpoint is not available right now. I am not showing a scripted substitute, but the matchup stats above are still loaded.",
+      generatedBy: "OpenAI unavailable",
     };
   },
 };
@@ -758,6 +757,42 @@ function scoreProfile(profile: PlayerProfile, opponent: PlayerProfile) {
     (surfaceWinRate(profile.bestSurfaceRecord) - surfaceWinRate(opponent.bestSurfaceRecord)) * 0.3 +
     (profile.currentStreak.result === "W" ? profile.currentStreak.count * 2 : -profile.currentStreak.count * 2)
   );
+}
+
+function buildUnavailableAnalysis(first: Player, second: Player, headToHead: HeadToHead | null, reason: string): Analysis {
+  const firstProfile = buildPlayerProfile(first);
+  const secondProfile = buildPlayerProfile(second);
+  return {
+    headline: "OpenAI analysis unavailable",
+    pick: "No AI pick generated",
+    conviction: "Unavailable",
+    narrative: `${reason}. Loaded stats are present for ${first.name} (${compactProfileSummary(firstProfile)}) and ${second.name} (${compactProfileSummary(secondProfile)}), but the app is not showing a scripted recommendation in place of GPT.`,
+    generatedBy: "OpenAI unavailable",
+    confidence: "No model output",
+    edges: [
+      `${first.name}: ${compactProfileSummary(firstProfile)}`,
+      `${second.name}: ${compactProfileSummary(secondProfile)}`,
+      headToHead ? `Loaded H2H: ${first.name} ${headToHead.winsA}-${headToHead.winsB} ${second.name}.` : "No loaded H2H for this matchup.",
+    ],
+    redFlags: [
+      "OpenAI did not return a generated analysis.",
+      "The previous zero-stat local script has been disabled.",
+    ],
+    risks: [
+      "Check that Render has OPENAI_API_KEY set.",
+      "If the model request fails, retry after the deployment finishes or check the Render logs.",
+    ],
+    focus: [
+      "Once OpenAI is configured, GPT will compare advantages and disadvantages from the loaded stat pack.",
+      "The player profile data can still power the scoreboard while AI is unavailable.",
+    ],
+  };
+}
+
+function compactProfileSummary(profile: PlayerProfile) {
+  const season = publicSeasonRecord(profile);
+  const bestSurfaceRecord = profile.bestSurfaceRecord || { surface: "unknown", wins: 0, losses: 0 };
+  return `${formatRecord(profile.recent.wins, profile.recent.losses)} last ${profile.recentMatches.length}, ${formatRecord(season.wins, season.losses)} season, ${formatRecord(profile.decidingSet.wins, profile.decidingSet.losses)} deciding sets, ${bestSurfaceRecord.surface} ${formatRecord(bestSurfaceRecord.wins, bestSurfaceRecord.losses)}`;
 }
 
 function buildAnalysis(first: Player, second: Player, headToHead: HeadToHead | null): Analysis {
