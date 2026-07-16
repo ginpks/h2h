@@ -258,38 +258,39 @@ button {
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 4px;
 }
 
 .form-dot {
   display: grid;
   place-items: center;
-  width: clamp(24px, 3vw, 31px);
+  width: clamp(21px, 2.55vw, 27px);
   aspect-ratio: 1;
   border-radius: 50%;
-  border: 1px solid var(--line-strong);
+  border: 1px solid rgba(229, 233, 238, 0.16);
   background: transparent;
   color: var(--muted);
-  font-size: clamp(0.68rem, 1.35vw, 0.82rem);
-  font-weight: 780;
+  font-size: clamp(0.58rem, 1.12vw, 0.7rem);
+  font-weight: 720;
+  opacity: 0.9;
 }
 
 .form-dot.win {
-  border-color: rgba(111, 209, 138, 0.56);
-  background: rgba(111, 209, 138, 0.07);
-  color: var(--win);
+  border-color: rgba(111, 209, 138, 0.28);
+  background: rgba(111, 209, 138, 0.025);
+  color: #9bcaaa;
 }
 
 .form-dot.loss {
-  border-color: rgba(224, 107, 99, 0.54);
-  background: rgba(224, 107, 99, 0.07);
-  color: var(--loss);
+  border-color: rgba(224, 107, 99, 0.26);
+  background: rgba(224, 107, 99, 0.025);
+  color: #c99a96;
 }
 
 .form-dots b {
-  margin-left: 2px;
-  color: var(--muted);
-  font-size: 1.25rem;
+  margin-left: 1px;
+  color: rgba(117, 127, 136, 0.56);
+  font-size: 1rem;
   letter-spacing: -4px;
 }
 
