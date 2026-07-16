@@ -16,6 +16,14 @@ const rapidCacheTtlMs = Number(process.env.RAPID_TENNIS_CACHE_TTL_MS || 5 * 60 *
 const rapidMatchPageLimit = Number(process.env.RAPID_TENNIS_MATCH_PAGE_LIMIT || 100);
 const rapidMatchMaxPages = Number(process.env.RAPID_TENNIS_MATCH_MAX_PAGES || 6);
 const tennisStatsFetchEnabled = process.env.TENNISSTATS_ENABLE_FETCH === "1";
+const tennisStatsSearchEnabled = tennisStatsFetchEnabled || process.env.TENNISSTATS_ENABLE_SEARCH === "1";
+const fallbackSearchEnabled = process.env.SEARCH_FALLBACK_ENABLE !== "0";
+const bundledSearchPlayers = [
+  { id: "sample-M:Jannik Sinner", name: "Jannik Sinner", country: "ITA", ranking: 1, tour: "M", source: "Demo dataset" },
+  { id: "sample-M:Carlos Alcaraz", name: "Carlos Alcaraz", country: "ESP", ranking: 2, tour: "M", source: "Demo dataset" },
+  { id: "sample-W:Iga Swiatek", name: "Iga Swiatek", country: "POL", ranking: 3, tour: "W", source: "Demo dataset" },
+  { id: "sample-W:Aryna Sabalenka", name: "Aryna Sabalenka", country: "BLR", ranking: 1, tour: "W", source: "Demo dataset" },
+];
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -58,12 +66,21 @@ createServer(async (request, response) => {
           {
             name: "Live tennis providers",
             status: "ready",
-            detail: "Rapid Tennis API is the structured source for search, player stats, match history, and live context",
+            detail: fallbackSearchEnabled
+              ? "Rapid Tennis API is primary; public search fallbacks stay available if Rapid quota is exhausted"
+              : "Rapid Tennis API is the structured source for search, player stats, match history, and live context",
           },
           {
             name: "Rapid Tennis API",
             status: rapidTennisKey ? "ready" : "planned",
             detail: rapidTennisKey ? "Live events and live-score context are enabled" : "Set RAPID_TENNIS_API_KEY to enable live-score context",
+          },
+          {
+            name: "Search fallbacks",
+            status: fallbackSearchEnabled ? "ready" : "planned",
+            detail: fallbackSearchEnabled
+              ? `Wikidata${tennisStatsSearchEnabled ? ", TennisStats," : ""} and demo roster search can fill in when Rapid search is unavailable`
+              : "Set SEARCH_FALLBACK_ENABLE=1 to enable non-Rapid player search",
           },
         ],
       });
@@ -100,7 +117,7 @@ createServer(async (request, response) => {
 
     if (request.method === "GET" && url.pathname === "/api/search") {
       const query = url.searchParams.get("q") || "";
-      writeJson(response, await searchRapidPlayers(query));
+      writeJson(response, await searchPlayers(query));
       return;
     }
 
@@ -115,14 +132,20 @@ createServer(async (request, response) => {
       try {
         writeJson(response, await fetchRapidPlayerProfile(name, tour));
       } catch (error) {
-        console.error("Rapid Tennis player fetch failed:", error);
-        response.writeHead(502, { "Content-Type": mimeTypes[".json"] });
-        response.end(
-          JSON.stringify({
-            error: "Could not fetch player from Rapid Tennis API",
-            detail: error instanceof Error ? error.message : "Unknown upstream error",
-          }),
-        );
+        if (fallbackSearchEnabled && isRapidFallbackError(error)) {
+          const reason = isRapidQuotaError(error) ? "quota" : error instanceof Error ? error.message : "unavailable";
+          console.warn(`Rapid Tennis player fetch unavailable for ${name} (${reason}); using public fallback profile.`);
+          writeJson(response, await buildFallbackPlayerProfile(name, tour, error));
+        } else {
+          console.error("Rapid Tennis player fetch failed:", error);
+          response.writeHead(502, { "Content-Type": mimeTypes[".json"] });
+          response.end(
+            JSON.stringify({
+              error: "Could not fetch player from Rapid Tennis API",
+              detail: error instanceof Error ? error.message : "Unknown upstream error",
+            }),
+          );
+        }
       }
       return;
     }
@@ -281,6 +304,114 @@ async function searchRapidPlayers(query) {
     .slice(0, 12);
 }
 
+async function searchPlayers(query) {
+  const normalized = query.trim();
+  if (normalized.length < 2) {
+    return [];
+  }
+
+  try {
+    return await searchRapidPlayers(normalized);
+  } catch (error) {
+    if (!fallbackSearchEnabled) {
+      throw error;
+    }
+    const reason = isRapidQuotaError(error) ? "quota exhausted" : error instanceof Error ? error.message : "upstream error";
+    console.warn(`Rapid Tennis search unavailable (${reason}); trying fallback search providers.`);
+    return searchFallbackPlayers(normalized);
+  }
+}
+
+async function searchFallbackPlayers(query) {
+  const results = [];
+
+  if (tennisStatsSearchEnabled) {
+    try {
+      results.push(...(await searchTennisStatsPlayers(query)));
+    } catch (error) {
+      console.warn("TennisStats search fallback failed:", error instanceof Error ? error.message : error);
+    }
+  }
+
+  try {
+    results.push(...(await searchWikidataTennisPlayers(query)));
+  } catch (error) {
+    console.warn("Wikidata search fallback failed:", error instanceof Error ? error.message : error);
+  }
+
+  results.push(...searchBundledPlayers(query));
+  return dedupeSearchResults(results).slice(0, 12);
+}
+
+async function searchTennisStatsPlayers(query) {
+  const url = `https://tennisstats.com/?s=${encodeURIComponent(query)}`;
+  const response = await fetch(url, {
+    headers: tennisStatsHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`TennisStats search returned ${response.status}`);
+  }
+
+  const html = await response.text();
+  const matches = [...html.matchAll(/href=["']https?:\/\/tennisstats\.com\/players\/([^"'?#/]+)\/?["'][\s\S]{0,220}?>([^<]+)</gi)];
+  return matches
+    .map((match) => {
+      const name = decodeHtmlEntities(match[2]).replace(/\s+-\s+Tennis Stats.*$/i, "").trim();
+      return {
+        id: `tennisstats:${match[1]}`,
+        name,
+        country: "",
+        ranking: 0,
+        tour: undefined,
+        source: "TennisStats",
+      };
+    })
+    .filter((player) => player.name && normalizePlayerName(player.name).includes(normalizePlayerName(query)));
+}
+
+async function searchWikidataTennisPlayers(query) {
+  const url = new URL("https://www.wikidata.org/w/api.php");
+  url.searchParams.set("action", "wbsearchentities");
+  url.searchParams.set("format", "json");
+  url.searchParams.set("language", "en");
+  url.searchParams.set("limit", "12");
+  url.searchParams.set("search", query);
+  const response = await fetch(url, {
+    headers: { Accept: "application/json", "User-Agent": "h2h-tennis-dashboard/0.1" },
+  });
+  if (!response.ok) {
+    throw new Error(`Wikidata returned ${response.status}`);
+  }
+
+  const data = await response.json();
+  return asArray(data.search)
+    .filter((item) => /tennis/i.test(String(item.description || "")))
+    .map((item) => ({
+      id: `wikidata:${item.id}`,
+      name: String(item.label || ""),
+      country: "",
+      ranking: 0,
+      tour: undefined,
+      source: "Wikidata",
+    }))
+    .filter((player) => player.name);
+}
+
+function searchBundledPlayers(query) {
+  const normalized = normalizePlayerName(query);
+  return bundledSearchPlayers.filter((player) => normalizePlayerName(`${player.name} ${player.country}`).includes(normalized));
+}
+
+function dedupeSearchResults(results) {
+  const seen = new Set();
+  return results.filter((result) => {
+    const key = normalizePlayerName(result.name);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 async function fetchRapidPlayerProfile(name, tour = "M") {
   const [profileResult, statsResult, surfaceResult, matchesResult, publicStatsResult] = await Promise.allSettled([
     fetchRapidTennisJson(`/tennis/v2/ms-api/profile/${encodeURIComponent(name)}`),
@@ -341,6 +472,47 @@ async function fetchRapidPlayerProfile(name, tour = "M") {
   };
 }
 
+async function buildFallbackPlayerProfile(name, tour = "M", cause = null) {
+  const publicStats = tennisStatsFetchEnabled ? await fetchOptionalTennisStatsPlayerStats(name) : null;
+  const publicSurfaces = publicStats?.surfaceCareer || {};
+  const careerSurfaces = ["Hard", "Clay", "Grass", "Indoor"].map((surface) => ({
+    surface,
+    wins: numberOrZero(publicSurfaces[surface]?.wins),
+    losses: numberOrZero(publicSurfaces[surface]?.losses),
+  }));
+  const careerRecord = publicStats?.careerRecord || { wins: 0, losses: 0 };
+  const currentYearRecord = publicStats?.currentYearRecord || { wins: 0, losses: 0 };
+  const normalizedTour = tour === "W" ? "W" : "M";
+
+  return {
+    id: `fallback-${normalizedTour.toLowerCase()}-${slugifyPlayerName(name).toLowerCase()}`,
+    tour: normalizedTour,
+    name,
+    country: "",
+    age: numberOrZero(publicStats?.profile?.age),
+    ranking: 0,
+    points: 0,
+    titles: 0,
+    seasonRecord: { wins: numberOrZero(currentYearRecord.wins), losses: numberOrZero(currentYearRecord.losses) },
+    careerSurfaces,
+    matches: [],
+    apiStats: {
+      source: publicStats ? "TennisStats public fallback" : "Public-source fallback",
+      fetchedAt: new Date().toISOString(),
+      careerRecord: { wins: numberOrZero(careerRecord.wins), losses: numberOrZero(careerRecord.losses) },
+      totalMatches: numberOrZero(careerRecord.totalMatches) || numberOrZero(careerRecord.wins) + numberOrZero(careerRecord.losses),
+      matchLogCount: 0,
+      publicStats,
+      fallbackReason: cause instanceof Error ? cause.message : "Rapid Tennis API unavailable",
+    },
+    source: {
+      name: publicStats ? "TennisStats fallback" : "Public-source fallback",
+      url: publicStats?.url || "https://www.wikidata.org/",
+      fetchedAt: new Date().toISOString(),
+    },
+  };
+}
+
 async function fetchRapidPlayerMatches(name) {
   const encodedName = encodeURIComponent(name);
   const firstPage = unwrapData(await fetchRapidTennisJson(`/tennis/v2/ms-api/profile/${encodedName}/matches-played?limit=${rapidMatchPageLimit}&page=1`));
@@ -367,11 +539,7 @@ async function fetchTennisStatsPlayerStats(name) {
   const slug = slugifyTennisStatsPlayerName(name);
   const url = `https://tennisstats.com/players/${slug}`;
   const response = await fetch(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
+    headers: tennisStatsHeaders(),
   });
 
   if (!response.ok) {
@@ -379,6 +547,23 @@ async function fetchTennisStatsPlayerStats(name) {
   }
 
   return parseTennisStatsPlayerPage(await response.text(), name, url);
+}
+
+async function fetchOptionalTennisStatsPlayerStats(name) {
+  try {
+    return await fetchTennisStatsPlayerStats(name);
+  } catch (error) {
+    console.warn(`TennisStats profile fallback failed for ${name}:`, error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+function tennisStatsHeaders() {
+  return {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+  };
 }
 
 function parseTennisStatsPlayerPage(html, name, url) {
@@ -652,15 +837,38 @@ async function requestRapidTennisJson(path, attempt = 1) {
   }
 
   if (!response.ok) {
-    if (response.status === 429 && attempt < 3) {
+    const quotaExceeded = isQuotaResponse(response.status, data, text);
+    if (response.status === 429 && !quotaExceeded && attempt < 3) {
       const retryAfterSeconds = Number(response.headers.get("retry-after") || 0);
       await delay(Math.max(1000, retryAfterSeconds * 1000 || attempt * 1200));
       return requestRapidTennisJson(path, attempt + 1);
     }
-    throw new Error(`Rapid Tennis returned ${response.status}`);
+    throw new RapidTennisError(`Rapid Tennis returned ${response.status}${quotaExceeded ? " (quota exceeded)" : ""}`, response.status, quotaExceeded);
   }
 
   return data;
+}
+
+class RapidTennisError extends Error {
+  constructor(message, status, quotaExceeded = false) {
+    super(message);
+    this.name = "RapidTennisError";
+    this.status = status;
+    this.quotaExceeded = quotaExceeded;
+  }
+}
+
+function isQuotaResponse(status, data, text) {
+  const body = `${JSON.stringify(data || {})} ${text || ""}`.toLowerCase();
+  return status === 429 || /\b(quota|limit|rate|too many|exceeded)\b/.test(body);
+}
+
+function isRapidQuotaError(error) {
+  return Boolean(error?.quotaExceeded || error?.status === 429 || /quota|limit|429|too many|exceeded/i.test(String(error?.message || "")));
+}
+
+function isRapidFallbackError(error) {
+  return error instanceof RapidTennisError || /RAPID_TENNIS_API_KEY|Rapid Tennis/i.test(String(error?.message || ""));
 }
 
 function delay(ms) {

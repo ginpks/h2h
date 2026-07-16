@@ -1115,7 +1115,7 @@ function App() {
       if (side === "a") setPlayerAId(player.id);
       else setPlayerBId(player.id);
     } catch {
-      setError(`Could not fetch ${result.name} from Rapid Tennis API.`);
+      setError(`Could not fetch ${result.name} from the available tennis data sources.`);
     } finally {
       setIsFetchingPlayer(false);
     }
@@ -1334,8 +1334,8 @@ function PlayerSearch({
               ))
             ) : (
               <div className="search-empty">
-                <strong>{isSearching ? (hasBackend() ? "Searching Rapid Tennis API" : "Checking sample roster") : "No player found"}</strong>
-                <small>{hasBackend() ? "Try the full player name." : "GitHub Pages is in sample mode. Connect the hosted backend to search Rapid Tennis API players."}</small>
+                <strong>{isSearching ? (hasBackend() ? "Searching tennis sources" : "Checking sample roster") : "No player found"}</strong>
+                <small>{hasBackend() ? "Try the full player name." : "GitHub Pages is in sample mode. Connect the hosted backend to search live tennis sources."}</small>
               </div>
             )}
           </div>

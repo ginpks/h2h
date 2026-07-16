@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: h2h
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm run serve
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: HOST
+        value: 0.0.0.0
+      - key: ALLOWED_ORIGIN
+        value: "*"
+      - key: TENNIS_DATA_MODE
+        value: live
+      - key: SEARCH_FALLBACK_ENABLE
+        value: "1"
+      - key: TENNISSTATS_ENABLE_SEARCH
+        value: "1"
+      - key: TENNISSTATS_ENABLE_FETCH
+        value: "0"
+      - key: RAPID_TENNIS_HOST
+        value: tennis-api-atp-wta-itf.p.rapidapi.com
+      - key: RAPID_TENNIS_BASE_URL
+        value: https://tennis-api-atp-wta-itf.p.rapidapi.com
+      - key: RAPID_TENNIS_CACHE_TTL_MS
+        value: "300000"
+      - key: RAPID_TENNIS_MATCH_PAGE_LIMIT
+        value: "100"
+      - key: RAPID_TENNIS_MATCH_MAX_PAGES
+        value: "6"
+      - key: OPENAI_MODEL
+        value: gpt-5.5
+      - key: OPENAI_ENABLE_WEB_SEARCH
+        value: "0"
+      - key: RAPID_TENNIS_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
