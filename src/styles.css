@@ -372,40 +372,50 @@ button {
   position: relative;
   display: grid;
   place-items: center;
-  width: min(150px, 38vw);
+  width: min(112px, 30vw);
   aspect-ratio: 1;
-  border: 2px solid rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(229, 233, 238, 0.1);
   border-radius: 50%;
-  background: conic-gradient(var(--blue) 0 var(--win), #c84b38 var(--win) 100%);
-  color: white;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+  background: conic-gradient(rgba(111, 209, 138, 0.42) 0 var(--win), rgba(224, 107, 99, 0.34) var(--win) 100%);
+  color: var(--soft);
+}
+
+.pie::before {
+  position: absolute;
+  inset: 7px;
+  border: 1px solid rgba(229, 233, 238, 0.08);
+  border-radius: 50%;
+  background: #0c100d;
+  content: "";
 }
 
 .pie span,
 .pie small {
   position: absolute;
-  font-size: 0.78rem;
-  font-weight: 720;
+  z-index: 1;
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 680;
 }
 
 .pie span {
-  right: 17%;
-  bottom: 34%;
+  right: 14%;
+  bottom: 32%;
 }
 
 .pie small {
-  left: 14%;
-  bottom: 32%;
+  left: 12%;
+  bottom: 30%;
 }
 
 .pie b {
   display: grid;
+  position: relative;
+  z-index: 1;
   place-items: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
-  background: rgba(7, 10, 8, 0.22);
-  font-size: 0.78rem;
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 780;
 }
 
 .year-stack {
@@ -670,10 +680,9 @@ button {
 
 .chat-message.assistant {
   justify-self: start;
-  border-color: rgba(229, 233, 238, 0.11);
+  border-color: transparent;
   background: transparent;
   color: var(--soft);
-  border-bottom-left-radius: 5px;
 }
 
 .chat-message.user {
@@ -697,7 +706,7 @@ button {
   height: 42px;
   padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius);
   outline: 0;
   background: transparent;
   color: var(--text);
@@ -710,7 +719,7 @@ button {
 
 .chat-form button {
   height: 42px;
-  border-radius: 50%;
+  border-radius: var(--radius);
 }
 
 .error-banner {
