@@ -591,42 +591,171 @@ async function fetchRapidPlayerProfile(name, tour = "M") {
 
 async function buildFallbackPlayerProfile(name, tour = "M", cause = null) {
   const publicStats = tennisStatsFetchEnabled ? await fetchOptionalTennisStatsPlayerStats(name) : null;
+  const abstractProfile = await fetchOptionalTennisAbstractProfile(name, tour);
   const publicSurfaces = publicStats?.surfaceCareer || {};
-  const careerSurfaces = ["Hard", "Clay", "Grass", "Indoor"].map((surface) => ({
-    surface,
-    wins: numberOrZero(publicSurfaces[surface]?.wins),
-    losses: numberOrZero(publicSurfaces[surface]?.losses),
-  }));
+  const careerSurfaces = abstractProfile?.careerSurfaces?.some((surface) => surface.wins + surface.losses > 0)
+    ? abstractProfile.careerSurfaces
+    : ["Hard", "Clay", "Grass", "Indoor"].map((surface) => ({
+        surface,
+        wins: numberOrZero(publicSurfaces[surface]?.wins),
+        losses: numberOrZero(publicSurfaces[surface]?.losses),
+      }));
   const careerRecord = publicStats?.careerRecord || { wins: 0, losses: 0 };
   const currentYearRecord = publicStats?.currentYearRecord || { wins: 0, losses: 0 };
   const normalizedTour = tour === "W" ? "W" : "M";
+  const matches = abstractProfile?.matches || [];
+  const derivedCareer = deriveRecord(matches);
+  const derivedSeason = deriveRecord(matches.filter((match) => match.date.startsWith(String(new Date().getFullYear()))));
+  const fallbackCareer = derivedCareer.wins + derivedCareer.losses ? derivedCareer : { wins: numberOrZero(careerRecord.wins), losses: numberOrZero(careerRecord.losses) };
+  const fallbackSeason = derivedSeason.wins + derivedSeason.losses ? derivedSeason : { wins: numberOrZero(currentYearRecord.wins), losses: numberOrZero(currentYearRecord.losses) };
 
   return {
     id: `fallback-${normalizedTour.toLowerCase()}-${slugifyPlayerName(name).toLowerCase()}`,
     tour: normalizedTour,
-    name,
-    country: "",
-    age: numberOrZero(publicStats?.profile?.age),
-    ranking: 0,
+    name: abstractProfile?.name || name,
+    country: abstractProfile?.country || "",
+    age: abstractProfile?.age || numberOrZero(publicStats?.profile?.age),
+    ranking: abstractProfile?.ranking || 0,
     points: 0,
     titles: 0,
-    seasonRecord: { wins: numberOrZero(currentYearRecord.wins), losses: numberOrZero(currentYearRecord.losses) },
+    seasonRecord: fallbackSeason,
     careerSurfaces,
-    matches: [],
+    matches,
     apiStats: {
-      source: publicStats ? "TennisStats public fallback" : "Public-source fallback",
+      source: abstractProfile ? "TennisAbstract public fallback" : publicStats ? "TennisStats public fallback" : "Public-source fallback",
       fetchedAt: new Date().toISOString(),
-      careerRecord: { wins: numberOrZero(careerRecord.wins), losses: numberOrZero(careerRecord.losses) },
-      totalMatches: numberOrZero(careerRecord.totalMatches) || numberOrZero(careerRecord.wins) + numberOrZero(careerRecord.losses),
-      matchLogCount: 0,
-      publicStats,
+      careerRecord: fallbackCareer,
+      totalMatches: numberOrZero(careerRecord.totalMatches) || fallbackCareer.wins + fallbackCareer.losses,
+      matchLogCount: matches.length,
+      publicStats: publicStats || abstractProfile?.publicStats || null,
       fallbackReason: cause instanceof Error ? cause.message : "Rapid Tennis API unavailable",
     },
     source: {
-      name: publicStats ? "TennisStats fallback" : "Public-source fallback",
-      url: publicStats?.url || "https://www.wikidata.org/",
+      name: abstractProfile ? "TennisAbstract fallback" : publicStats ? "TennisStats fallback" : "Public-source fallback",
+      url: abstractProfile?.url || publicStats?.url || "https://www.wikidata.org/",
       fetchedAt: new Date().toISOString(),
     },
+  };
+}
+
+async function fetchOptionalTennisAbstractProfile(name, tour = "M") {
+  try {
+    return await fetchTennisAbstractProfile(name, tour);
+  } catch (error) {
+    console.warn(`TennisAbstract fallback failed for ${name}:`, error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+async function fetchTennisAbstractProfile(name, tour = "M") {
+  const slug = slugifyTennisAbstractPlayerName(name);
+  const basePath = tour === "W" ? "wplayer.cgi" : "player.cgi";
+  const url = `https://www.tennisabstract.com/cgi-bin/${basePath}?p=${slug}`;
+  const pageResponse = await fetch(url, { headers: tennisAbstractHeaders() });
+  if (!pageResponse.ok) {
+    throw new Error(`TennisAbstract returned ${pageResponse.status}`);
+  }
+  const page = await pageResponse.text();
+  const resolvedName = jsVarString(page, "fullname") || name;
+  const jsSlug = jsVarString(page, "nameparam") || slug;
+  const fragUrl = `https://www.tennisabstract.com/jsfrags/${encodeURIComponent(jsSlug)}.js`;
+  const fragResponse = await fetch(fragUrl, { headers: tennisAbstractHeaders() });
+  const fragment = fragResponse.ok ? await fragResponse.text() : "";
+  const matches = parseTennisAbstractRecentMatches(fragment, resolvedName);
+  const careerSurfaces = ["Hard", "Clay", "Grass", "Indoor"].map((surface) => {
+    const surfaceMatches = matches.filter((match) => match.surface === surface);
+    const wins = surfaceMatches.filter((match) => match.result === "W").length;
+    return { surface, wins, losses: surfaceMatches.length - wins };
+  });
+  const dob = jsVarNumber(page, "dob");
+  const hand = jsVarString(page, "hand");
+  return {
+    name: resolvedName,
+    country: jsVarString(page, "country"),
+    age: dob ? ageFromYYYYMMDD(String(dob)) : 0,
+    ranking: jsVarNumber(page, "currentrank"),
+    careerSurfaces,
+    matches,
+    url,
+    publicStats: {
+      source: "TennisAbstract",
+      url,
+      fetchedAt: new Date().toISOString(),
+      profile: {
+        age: dob ? ageFromYYYYMMDD(String(dob)) : 0,
+        hand: hand === "R" ? "Right-handed" : hand === "L" ? "Left-handed" : null,
+      },
+    },
+  };
+}
+
+function parseTennisAbstractRecentMatches(fragment) {
+  const seen = new Set();
+  const rows = [...String(fragment || "").matchAll(/<tr>([\s\S]*?)<\/tr>/gi)];
+  return rows
+    .map((row) => {
+      const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => match[1]);
+      if (cells.length < 8) return null;
+      const date = parseTennisAbstractDate(stripHtml(cells[0]));
+      const score = stripHtml(cells[7]);
+      if (!date || !score) return null;
+      const matchup = cells[6];
+      const playerWon = /<b>[\s\S]*?<\/b>\s*d\./i.test(matchup);
+      const playerLost = /d\.[\s\S]*?<b>[\s\S]*?<\/b>/i.test(matchup);
+      if (!playerWon && !playerLost) return null;
+      const opponentMatch = matchup.match(/<a[^>]+player\.cgi\?p=[^"']+["'][^>]*>([\s\S]*?)<\/a>/i);
+      const opponent = opponentMatch ? stripHtml(opponentMatch[1]) : "Unknown";
+      const opponentRank = numberOrZero(stripHtml(cells[5]));
+      return {
+        date,
+        tournament: stripHtml(cells[1]),
+        surface: normalizeSurface(stripHtml(cells[2])),
+        round: stripHtml(cells[3]),
+        opponent,
+        opponentRank,
+        result: playerWon ? "W" : "L",
+        score: playerWon ? score : invertScore(score),
+      };
+    })
+    .filter(Boolean)
+    .filter((match) => {
+      const key = [match.date, match.tournament, match.round, match.opponent, match.score].join("|");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 80);
+}
+
+function parseTennisAbstractDate(value) {
+  const match = String(value || "").match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+  if (!match) return "";
+  const months = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
+  return `${match[3]}-${months[match[2].toLowerCase()] || "01"}-${match[1].padStart(2, "0")}`;
+}
+
+function jsVarString(source, name) {
+  const match = String(source || "").match(new RegExp(`var\\s+${escapeRegExp(name)}\\s*=\\s*'([^']*)'`));
+  return match ? decodeHtmlEntities(match[1]) : "";
+}
+
+function jsVarNumber(source, name) {
+  const match = String(source || "").match(new RegExp(`var\\s+${escapeRegExp(name)}\\s*=\\s*([0-9]+)`));
+  return match ? Number(match[1]) : 0;
+}
+
+function slugifyTennisAbstractPlayerName(name) {
+  return String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z]/g, "");
+}
+
+function tennisAbstractHeaders() {
+  return {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
   };
 }
 
